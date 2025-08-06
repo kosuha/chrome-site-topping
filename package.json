@@ -1,0 +1,35 @@
+{
+  "name": "chrome-site-topping",
+  "version": "1.0.0",
+  "description": "화면 우측에 표시되는 사이트 토핑 크롬 익스텐션입니다.",
+  "main": "background.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kosuha/chrome-site-topping.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kosuha/chrome-site-topping/issues"
+  },
+  "homepage": "https://github.com/kosuha/chrome-site-topping#readme",
+  "dependencies": {
+    "@crxjs/vite-plugin": "^2.0.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "vite": "^7.0.6"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.1",
+    "@types/react": "^19.1.9",
+    "@types/react-dom": "^19.1.7",
+    "typescript": "^5.9.2"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Site Topping",
+  "version": "1.0",
+  "description": "Site Topping Extension",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "action": {
+    "default_title": "Site Topping 열기/닫기"
+  },
+  "background": {
+    "service_worker": "src/background.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*/*"],
+      "js": ["src/content.tsx"],
+      "type": "module"
+    }
+  ]
+}
