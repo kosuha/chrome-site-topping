@@ -3,6 +3,8 @@ import styles from '../styles/SidePanel.module.css';
 import { SIDE_PANEL, TABS } from '../utils/constants';
 import type { SidePanelProps } from '../types';
 import { ArrowRightFromLine, BotMessageSquare, Code } from 'lucide-react';
+import CodeEditTab from './CodeEditTab';
+import ChatTab from './ChatTab';
 
 export default function SidePanel({ isOpen, onClose }: SidePanelProps) {
   const [activeTab, setActiveTab] = useState<'code' | 'chat'>(TABS.CODE);
@@ -85,12 +87,10 @@ export default function SidePanel({ isOpen, onClose }: SidePanelProps) {
       
       <div className={styles.panelContent}>
         <div className={`${styles.tabContent} ${activeTab === TABS.CODE ? styles.active : ''}`}>
-          {/* 코드 수정 탭 내용 */}
-          <div>코드 수정 탭</div>
+          <CodeEditTab />
         </div>
         <div className={`${styles.tabContent} ${activeTab === TABS.CHAT ? styles.active : ''}`}>
-          {/* 채팅 탭 내용 */}
-          <div>채팅 탭</div>
+          <ChatTab />
         </div>
       </div>
     </div>
