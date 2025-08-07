@@ -1,7 +1,7 @@
 import styles from '../styles/SidePanel.module.css';
 import { TABS } from '../utils/constants';
 import { useAppContext } from '../contexts/AppContext';
-import { ArrowRightFromLine, BotMessageSquare, Code, User, File, FolderOpen } from 'lucide-react';
+import { ArrowRightFromLine, BotMessageSquare, Code, User, FolderOpen } from 'lucide-react';
 
 interface PanelHeaderProps {
   onClose: () => void;

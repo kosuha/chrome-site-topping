@@ -48,7 +48,6 @@ export default function CodeEditTab() {
     <div className={styles.container}>
       <div className={styles.header}>
         <div className={styles.headerContent}>
-          <h3 className={styles.title}>코드 에디터</h3>
           <div className={styles.languageSelector}>
             <button
               className={`${styles.languageButton} ${language === 'javascript' ? styles.active : ''}`}
