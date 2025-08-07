@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import SidePanel from './SidePanel';
+import FloatingButton from './FloatingButton';
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
@@ -45,10 +46,16 @@ function App() {
   }, []);
 
   return (
-    <SidePanel 
-      isOpen={isOpen} 
-      onClose={closeSidePanel}
-    />
+    <>
+      <FloatingButton 
+        onClick={toggleSidePanel}
+        isVisible={!isOpen}
+      />
+      <SidePanel 
+        isOpen={isOpen} 
+        onClose={closeSidePanel}
+      />
+    </>
   );
 }
 
