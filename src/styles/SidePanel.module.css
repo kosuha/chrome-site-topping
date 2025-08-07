@@ -3,9 +3,9 @@
 .sidePanel {
     position: fixed;
     top: 0;
-    right: -450px;
-    width: 420px;
-    min-width: 450px;
+    right: -600px;
+    width: 600px;
+    min-width: 600px;
     max-width: 95%;
     height: 100vh;
     z-index: 2147483647;
