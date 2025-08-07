@@ -4,7 +4,7 @@ import { AppProvider, useAppContext } from './contexts/AppContext';
 import SidePanel from './components/SidePanel';
 
 const DevSidePanel = () => {
-  const { state, actions } = useAppContext();
+  const { actions } = useAppContext();
   
   useEffect(() => {
     actions.openPanel();
