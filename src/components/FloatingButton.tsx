@@ -1,9 +1,5 @@
-import styles from './FloatingButton.module.css';
-
-interface FloatingButtonProps {
-  onClick: () => void;
-  isVisible: boolean;
-}
+import styles from '../styles/FloatingButton.module.css';
+import type { FloatingButtonProps } from '../types';
 
 export default function FloatingButton({ onClick, isVisible }: FloatingButtonProps) {
   if (!isVisible) return null;

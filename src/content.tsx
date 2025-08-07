@@ -1,7 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { createRoot, Root } from 'react-dom/client';
-import SidePanel from './SidePanel';
-import FloatingButton from './FloatingButton';
+import SidePanel from './components/SidePanel';
+import FloatingButton from './components/FloatingButton';
+import { useChromeMessage } from './hooks/useChromeMessage';
+import { useUrlChange } from './hooks/useUrlChange';
+import { CHROME_ACTIONS } from './utils/constants';
+import type { ChromeMessage } from './types';
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
@@ -17,33 +21,17 @@ function App() {
     setIsOpen(false);
   };
 
-  useEffect(() => {
-    // Listen for messages from background script
-    const messageListener = (message: any, _sender: any, sendResponse: (response: any) => void) => {
-      if (message.action === 'toggleSidePanel') {
-        toggleSidePanel();
-        sendResponse({ success: true });
-      }
-    };
+  // Chrome 메시지 처리
+  useChromeMessage((message: ChromeMessage) => {
+    if (message.action === CHROME_ACTIONS.TOGGLE_PANEL) {
+      toggleSidePanel();
+    }
+  });
 
-    chrome.runtime.onMessage.addListener(messageListener);
-
-    // URL change observer for SPA navigation
-    let currentUrl = window.location.href;
-    const observer = new MutationObserver(() => {
-      if (currentUrl !== window.location.href) {
-        currentUrl = window.location.href;
-        // URL changed - can be used for tab content updates if needed
-      }
-    });
-
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    return () => {
-      chrome.runtime.onMessage.removeListener(messageListener);
-      observer.disconnect();
-    };
-  }, []);
+  // URL 변경 감지
+  useUrlChange(() => {
+    // URL 변경 시 필요한 로직 처리
+  });
 
   return (
     <>

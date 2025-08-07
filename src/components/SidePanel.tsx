@@ -1,14 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import styles from './SidePanel.module.css';
-
-interface SidePanelProps {
-  isOpen: boolean;
-  onClose: () => void;
-}
+import styles from '../styles/SidePanel.module.css';
+import { SIDE_PANEL, TABS } from '../utils/constants';
+import type { SidePanelProps } from '../types';
 
 export default function SidePanel({ isOpen, onClose }: SidePanelProps) {
-  const [activeTab, setActiveTab] = useState<'code' | 'chat'>('code');
-  const [width, setWidth] = useState(420);
+  const [activeTab, setActiveTab] = useState<'code' | 'chat'>(TABS.CODE);
+  const [width, setWidth] = useState<number>(SIDE_PANEL.DEFAULT_WIDTH);
   const sidePanelRef = useRef<HTMLDivElement>(null);
   const isResizing = useRef(false);
   const startX = useRef(0);
@@ -28,7 +25,7 @@ export default function SidePanel({ isOpen, onClose }: SidePanelProps) {
     if (!isResizing.current) return;
     
     const deltaX = startX.current - e.clientX;
-    const newWidth = Math.max(350, Math.min(800, startWidth.current + deltaX));
+    const newWidth = Math.max(SIDE_PANEL.MIN_WIDTH, Math.min(SIDE_PANEL.MAX_WIDTH, startWidth.current + deltaX));
     setWidth(newWidth);
   };
 
@@ -73,25 +70,25 @@ export default function SidePanel({ isOpen, onClose }: SidePanelProps) {
       
       <div className={styles.tabBar}>
         <button 
-          className={`${styles.tabBtn} ${activeTab === 'code' ? styles.active : ''}`}
-          onClick={() => switchTab('code')}
+          className={`${styles.tabBtn} ${activeTab === TABS.CODE ? styles.active : ''}`}
+          onClick={() => switchTab(TABS.CODE)}
         >
           코드 수정
         </button>
         <button 
-          className={`${styles.tabBtn} ${activeTab === 'chat' ? styles.active : ''}`}
-          onClick={() => switchTab('chat')}
+          className={`${styles.tabBtn} ${activeTab === TABS.CHAT ? styles.active : ''}`}
+          onClick={() => switchTab(TABS.CHAT)}
         >
           채팅
         </button>
       </div>
       
       <div className={styles.panelContent}>
-        <div className={`${styles.tabContent} ${activeTab === 'code' ? styles.active : ''}`}>
+        <div className={`${styles.tabContent} ${activeTab === TABS.CODE ? styles.active : ''}`}>
           {/* 코드 수정 탭 내용 */}
           <div>코드 수정 탭</div>
         </div>
-        <div className={`${styles.tabContent} ${activeTab === 'chat' ? styles.active : ''}`}>
+        <div className={`${styles.tabContent} ${activeTab === TABS.CHAT ? styles.active : ''}`}>
           {/* 채팅 탭 내용 */}
           <div>채팅 탭</div>
         </div>
