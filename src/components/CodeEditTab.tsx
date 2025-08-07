@@ -17,7 +17,6 @@ const DEFAULT_CODE = {
 export default function CodeEditTab() {
   const { state, actions } = useAppContext();
   const [language, setLanguage] = useState<Language>('javascript');
-  const [code, setCode] = useState(DEFAULT_CODE.javascript);
   
   const selectedFile = state.selectedFileId 
     ? state.files.find(f => f.id === state.selectedFileId) 
@@ -50,7 +49,6 @@ export default function CodeEditTab() {
 
   const handleLanguageChange = (newLanguage: Language) => {
     setLanguage(newLanguage);
-    setCode(DEFAULT_CODE[newLanguage]);
     setFileMetadata(prev => ({
       ...prev,
       lastModified: new Date()
@@ -58,7 +56,7 @@ export default function CodeEditTab() {
   };
 
   const handleEditorChange = (value: string | undefined) => {
-    setCode(value || '');
+    actions.setEditorCode(language, value || '');
     setFileMetadata(prev => ({
       ...prev,
       lastModified: new Date()
@@ -161,7 +159,7 @@ export default function CodeEditTab() {
       </div>
       <div className={styles.editorContainer}>
         <CodeMirror
-          value={code}
+          value={state.editorCode[language]}
           onChange={handleEditorChange}
           theme={xcodeLight}
           height="100%"

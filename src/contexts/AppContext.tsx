@@ -12,6 +12,10 @@ export interface AppState {
   selectedFileId: string | null;
   selectedVersionId: string | null;
   isPreviewMode: boolean;
+  editorCode: {
+    javascript: string;
+    css: string;
+  };
 }
 
 export type AppAction = 
@@ -28,6 +32,7 @@ export type AppAction =
   | { type: 'TOGGLE_FILE_EXPANSION'; payload: string }
   | { type: 'SELECT_FILE'; payload: { fileId: string; versionId?: string } }
   | { type: 'TOGGLE_PREVIEW_MODE' }
+  | { type: 'SET_EDITOR_CODE'; payload: { language: 'javascript' | 'css'; code: string } }
   | { type: 'RESET_STATE' };
 
 const initialState: AppState = {
@@ -41,6 +46,10 @@ const initialState: AppState = {
   selectedFileId: null,
   selectedVersionId: null,
   isPreviewMode: false,
+  editorCode: {
+    javascript: '// JavaScript code goes here',
+    css: '/* CSS Styles */'
+  },
 };
 
 function appReducer(state: AppState, action: AppAction): AppState {
@@ -95,6 +104,14 @@ function appReducer(state: AppState, action: AppAction): AppState {
       };
     case 'TOGGLE_PREVIEW_MODE':
       return { ...state, isPreviewMode: !state.isPreviewMode };
+    case 'SET_EDITOR_CODE':
+      return {
+        ...state,
+        editorCode: {
+          ...state.editorCode,
+          [action.payload.language]: action.payload.code
+        }
+      };
     case 'RESET_STATE':
       return initialState;
     default:
@@ -119,6 +136,7 @@ interface AppContextType {
     toggleFileExpansion: (fileId: string) => void;
     selectFile: (fileId: string, versionId?: string) => void;
     togglePreviewMode: () => void;
+    setEditorCode: (language: 'javascript' | 'css', code: string) => void;
     resetState: () => void;
   };
 }
@@ -146,6 +164,7 @@ export function AppProvider({ children }: AppProviderProps) {
     toggleFileExpansion: (fileId: string) => dispatch({ type: 'TOGGLE_FILE_EXPANSION', payload: fileId }),
     selectFile: (fileId: string, versionId?: string) => dispatch({ type: 'SELECT_FILE', payload: { fileId, versionId } }),
     togglePreviewMode: () => dispatch({ type: 'TOGGLE_PREVIEW_MODE' }),
+    setEditorCode: (language: 'javascript' | 'css', code: string) => dispatch({ type: 'SET_EDITOR_CODE', payload: { language, code } }),
     resetState: () => dispatch({ type: 'RESET_STATE' }),
   }), [dispatch]);
 

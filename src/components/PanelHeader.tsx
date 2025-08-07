@@ -1,7 +1,10 @@
+import { useEffect } from 'react';
 import styles from '../styles/SidePanel.module.css';
 import { TABS } from '../utils/constants';
 import { useAppContext } from '../contexts/AppContext';
 import { ArrowRightFromLine, BotMessageSquare, Code, User, FolderOpen, Eye, EyeClosed } from 'lucide-react';
+import { applyCodeToPage, removeCodeFromPage } from '../services/codePreview';
+import { useDebounce } from '../hooks/useDebounce';
 
 interface PanelHeaderProps {
   onClose: () => void;
@@ -10,10 +13,30 @@ interface PanelHeaderProps {
 export default function PanelHeader({ onClose }: PanelHeaderProps) {
   const { state, actions } = useAppContext();
   const { activeTab } = state;
+  
+  // 코드 변경을 500ms 디바운스
+  const debouncedCSS = useDebounce(state.editorCode.css, 500);
+  const debouncedJS = useDebounce(state.editorCode.javascript, 2000);
 
   const switchTab = (tabName: 'code' | 'chat' | 'user' | 'filelist') => {
     actions.setActiveTab(tabName);
   };
+
+  const handlePreviewToggle = () => {
+    if (state.isPreviewMode) {
+      removeCodeFromPage();
+    } else {
+      applyCodeToPage(state.editorCode.css, state.editorCode.javascript);
+    }
+    actions.togglePreviewMode();
+  };
+
+  // 프리뷰 모드일 때 디바운스된 코드 변경시 적용
+  useEffect(() => {
+    if (state.isPreviewMode) {
+      applyCodeToPage(debouncedCSS, debouncedJS);
+    }
+  }, [debouncedCSS, debouncedJS, state.isPreviewMode]);
 
   return (
     <div className={styles.panelHeader}>
@@ -23,7 +46,7 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
         </button>
         <button 
           className={`${styles.tabBtn} ${state.isPreviewMode ? styles.activePreview : ''}`}
-          onClick={actions.togglePreviewMode}
+          onClick={handlePreviewToggle}
           title={state.isPreviewMode ? "Hide Preview" : "Show Preview"}
         >
           {state.isPreviewMode ? <Eye size={24} /> : <EyeClosed size={24} />}
