@@ -1,91 +1,18 @@
-
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import styles from '../styles/FileListTab.module.css';
 import { useAppContext } from '../contexts/AppContext';
-
-interface FileVersion {
-  id: string;
-  version: string;
-  modifiedDate: Date;
-}
-
-interface FileItem {
-  id: string;
-  name: string;
-  createdDate: Date;
-  lastModified: Date;
-  versions: FileVersion[];
-  primaryVersionId?: string;
-  isApplied: boolean;
-}
-
-const mockFiles: FileItem[] = [
-  {
-    id: '1',
-    name: 'main',
-    createdDate: new Date('2024-01-15'),
-    lastModified: new Date('2024-08-07'),
-    versions: [
-      { id: 'v1', version: '1', modifiedDate: new Date('2024-01-15') },
-      { id: 'v2', version: '2', modifiedDate: new Date('2024-03-20') },
-      { id: 'v3', version: '3', modifiedDate: new Date('2024-08-07') }
-    ],
-    isApplied: true
-  },
-  {
-    id: '2',
-    name: 'style',
-    createdDate: new Date('2024-01-20'),
-    lastModified: new Date('2024-07-15'),
-    versions: [
-      { id: 'v1', version: '1', modifiedDate: new Date('2024-01-20') },
-      { id: 'v2', version: '2', modifiedDate: new Date('2024-07-15') }
-    ],
-    isApplied: false
-  },
-  {
-    id: '3',
-    name: 'product list',
-    createdDate: new Date('2024-02-01'),
-    lastModified: new Date('2024-06-30'),
-    versions: [
-      { id: 'v1', version: '1', modifiedDate: new Date('2024-02-01') }
-    ],
-    isApplied: true
-  }
-];
+import { FileItem } from '../types/file';
+import { mockFiles } from '../data/mockFiles';
 
 export default function FileListTab() {
-  const { actions } = useAppContext();
-  const [files, setFiles] = useState<FileItem[]>([]);
-  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const { state, actions } = useAppContext();
+  const { files, expandedFiles } = state;
 
   useEffect(() => {
-    setFiles(mockFiles);
-  }, []);
-
-  const toggleFileExpansion = (fileId: string) => {
-    const newExpanded = new Set(expandedFiles);
-    if (newExpanded.has(fileId)) {
-      newExpanded.delete(fileId);
-    } else {
-      newExpanded.add(fileId);
+    if (files.length === 0) {
+      actions.setFiles(mockFiles);
     }
-    setExpandedFiles(newExpanded);
-  };
-
-  const toggleFileApplied = (fileId: string) => {
-    setFiles(files.map(file => 
-      file.id === fileId ? { ...file, isApplied: !file.isApplied } : file
-    ));
-  };
-
-
-  const setPrimaryVersion = (fileId: string, versionId: string) => {
-    setFiles(files.map(file => 
-      file.id === fileId ? { ...file, primaryVersionId: versionId } : file
-    ));
-  };
+  }, [files.length, actions]);
 
   const getPrimaryVersion = (file: FileItem) => {
     if (file.primaryVersionId) {
@@ -115,7 +42,7 @@ export default function FileListTab() {
             <div className={styles.fileHeader}>
               <div 
                 className={styles.fileInfo}
-                onClick={() => toggleFileExpansion(file.id)}
+                onClick={() => actions.toggleFileExpansion(file.id)}
               >
                 <div className={styles.fileDetails}>
                   <div className={styles.fileName}>{file.name}</div>
@@ -129,14 +56,14 @@ export default function FileListTab() {
                   className={`${styles.toggle} ${file.isApplied ? styles.toggleActive : ''}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    toggleFileApplied(file.id);
+                    actions.toggleFileApplied(file.id);
                   }}
                 >
                   <div className={styles.toggleSlider}></div>
                 </div>
                 {/* <div 
                   className={styles.expandIcon}
-                  onClick={() => toggleFileExpansion(file.id)}
+                  onClick={() => actions.toggleFileExpansion(file.id)}
                 >
                   {expandedFiles.has(file.id) ? '▼' : '▶'}
                 </div> */}
@@ -160,13 +87,16 @@ export default function FileListTab() {
                       <div className={styles.versionActions}>
                         <button 
                           className={styles.actionButton}
-                          onClick={() => actions.setActiveTab('code')}
+                          onClick={() => {
+                            actions.selectFile(file.id, version.id);
+                            actions.setActiveTab('code');
+                          }}
                         >
                           보기
                         </button>
                         <button 
                           className={styles.actionButton}
-                          onClick={() => setPrimaryVersion(file.id, version.id)}
+                          onClick={() => actions.setPrimaryVersion(file.id, version.id)}
                         >
                           이 버전 사용
                         </button>

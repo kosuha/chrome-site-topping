@@ -1,24 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { css } from '@codemirror/lang-css';
 import styles from '../styles/CodeEditTab.module.css';
-import { xcodeLight } from '@uiw/codemirror-theme-xcode'; 
+import { xcodeLight } from '@uiw/codemirror-theme-xcode';
+import { useAppContext } from '../contexts/AppContext';
+import { ChevronDown } from 'lucide-react';
 
 type Language = 'javascript' | 'css';
-
-interface FileMetadata {
-  fileName: string;
-  createdAt: Date;
-  lastModified: Date;
-  version: string;
-}
-
-interface FileVersion {
-  id: string;
-  name: string;
-  timestamp: Date;
-}
 
 const DEFAULT_CODE = {
   javascript: `// JavaScript code goes here`,
@@ -26,23 +15,38 @@ const DEFAULT_CODE = {
 };
 
 export default function CodeEditTab() {
+  const { state, actions } = useAppContext();
   const [language, setLanguage] = useState<Language>('javascript');
   const [code, setCode] = useState(DEFAULT_CODE.javascript);
   
-  const [fileMetadata, setFileMetadata] = useState<FileMetadata>({
-    fileName: '',
-    createdAt: new Date(),
-    lastModified: new Date(),
-    version: 'v1.0.0'
+  const selectedFile = state.selectedFileId 
+    ? state.files.find(f => f.id === state.selectedFileId) 
+    : null;
+    
+  const selectedVersion = selectedFile && state.selectedVersionId
+    ? selectedFile.versions.find(v => v.id === state.selectedVersionId)
+    : selectedFile?.versions[selectedFile.versions.length - 1];
+
+  const [fileMetadata, setFileMetadata] = useState({
+    fileName: selectedFile?.name || '',
+    createdAt: selectedFile?.createdDate || new Date(),
+    lastModified: selectedFile?.lastModified || new Date(),
+    version: selectedVersion?.version || '1'
   });
   
-  const [availableVersions] = useState<FileVersion[]>([
-    { id: '1', name: 'v1.0.0', timestamp: new Date(Date.now() - 86400000) },
-    { id: '2', name: 'v1.1.0', timestamp: new Date(Date.now() - 43200000) },
-    { id: '3', name: 'v2.0.0', timestamp: new Date() }
-  ]);
   
   const [showVersionDropdown, setShowVersionDropdown] = useState(false);
+
+  useEffect(() => {
+    if (selectedFile) {
+      setFileMetadata({
+        fileName: selectedFile.name,
+        createdAt: selectedFile.createdDate,
+        lastModified: selectedFile.lastModified,
+        version: selectedVersion?.version || '1'
+      });
+    }
+  }, [selectedFile, selectedVersion]);
 
   const handleLanguageChange = (newLanguage: Language) => {
     setLanguage(newLanguage);
@@ -69,22 +73,12 @@ export default function CodeEditTab() {
     }));
   };
 
-  const handleVersionSelect = (version: FileVersion) => {
+  const handleVersionSelect = (version: { id: string; version: string; modifiedDate: Date }) => {
     setFileMetadata(prev => ({
       ...prev,
-      version: version.name
+      version: version.version
     }));
     setShowVersionDropdown(false);
-  };
-
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString('ko-KR', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
   };
 
   return (
@@ -111,22 +105,24 @@ export default function CodeEditTab() {
                   className={styles.versionButton}
                   onClick={() => setShowVersionDropdown(!showVersionDropdown)}
                 >
-                  {fileMetadata.version}
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M7 10l5 5 5-5z"/>
-                  </svg>
+                  <span className={styles.versionName}>
+                    v{fileMetadata.version}
+                  </span>
+                  <span className={styles.versionIcon}>
+                    <ChevronDown size={12} />
+                  </span>
                 </button>
                 {showVersionDropdown && (
                   <div className={styles.versionDropdown}>
-                    {availableVersions.map((version) => (
+                    {selectedFile?.versions.map((version) => (
                       <button
                         key={version.id}
-                        className={`${styles.versionOption} ${fileMetadata.version === version.name ? styles.selected : ''}`}
+                        className={`${styles.versionOption} ${fileMetadata.version === version.version ? styles.selected : ''}`}
                         onClick={() => handleVersionSelect(version)}
                       >
-                        <span className={styles.versionName}>{version.name}</span>
+                        <span className={styles.versionName}>v{version.version}</span>
                       </button>
-                    ))}
+                    )) || []}
                   </div>
                 )}
               </div>

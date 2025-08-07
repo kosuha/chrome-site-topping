@@ -93,6 +93,7 @@
   z-index: 1;
 }
 
+
 /* Language Selector Styles */
 .languageSelector {
   display: flex;
@@ -210,6 +211,7 @@
 .versionButton {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
   padding: 7px 12px;
   background: white;
@@ -222,6 +224,17 @@
   transition: all 0.2s ease;
   min-width: 80px;
   /* box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); */
+}
+
+.versionName {
+  text-align: left;
+  width: 100%;
+}
+
+.versionIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .versionButton:hover {

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useReducer, ReactNode, useMemo } from 'react';
+import { FileItem } from '../types/file';
 
 export interface AppState {
   isOpen: boolean;
@@ -6,6 +7,11 @@ export interface AppState {
   width: number;
   isLoading: boolean;
   error: string | null;
+  files: FileItem[];
+  expandedFiles: Set<string>;
+  selectedFileId: string | null;
+  selectedVersionId: string | null;
+  isPreviewMode: boolean;
 }
 
 export type AppAction = 
@@ -16,6 +22,12 @@ export type AppAction =
   | { type: 'SET_WIDTH'; payload: number }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string | null }
+  | { type: 'SET_FILES'; payload: FileItem[] }
+  | { type: 'TOGGLE_FILE_APPLIED'; payload: string }
+  | { type: 'SET_PRIMARY_VERSION'; payload: { fileId: string; versionId: string } }
+  | { type: 'TOGGLE_FILE_EXPANSION'; payload: string }
+  | { type: 'SELECT_FILE'; payload: { fileId: string; versionId?: string } }
+  | { type: 'TOGGLE_PREVIEW_MODE' }
   | { type: 'RESET_STATE' };
 
 const initialState: AppState = {
@@ -24,6 +36,11 @@ const initialState: AppState = {
   width: 400,
   isLoading: false,
   error: null,
+  files: [],
+  expandedFiles: new Set(),
+  selectedFileId: null,
+  selectedVersionId: null,
+  isPreviewMode: false,
 };
 
 function appReducer(state: AppState, action: AppAction): AppState {
@@ -42,6 +59,42 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, isLoading: action.payload };
     case 'SET_ERROR':
       return { ...state, error: action.payload };
+    case 'SET_FILES':
+      return { ...state, files: action.payload };
+    case 'TOGGLE_FILE_APPLIED':
+      return {
+        ...state,
+        files: state.files.map(file => 
+          file.id === action.payload 
+            ? { ...file, isApplied: !file.isApplied } 
+            : file
+        )
+      };
+    case 'SET_PRIMARY_VERSION':
+      return {
+        ...state,
+        files: state.files.map(file => 
+          file.id === action.payload.fileId 
+            ? { ...file, primaryVersionId: action.payload.versionId } 
+            : file
+        )
+      };
+    case 'TOGGLE_FILE_EXPANSION':
+      const newExpanded = new Set(state.expandedFiles);
+      if (newExpanded.has(action.payload)) {
+        newExpanded.delete(action.payload);
+      } else {
+        newExpanded.add(action.payload);
+      }
+      return { ...state, expandedFiles: newExpanded };
+    case 'SELECT_FILE':
+      return {
+        ...state,
+        selectedFileId: action.payload.fileId,
+        selectedVersionId: action.payload.versionId || null
+      };
+    case 'TOGGLE_PREVIEW_MODE':
+      return { ...state, isPreviewMode: !state.isPreviewMode };
     case 'RESET_STATE':
       return initialState;
     default:
@@ -60,6 +113,12 @@ interface AppContextType {
     setWidth: (width: number) => void;
     setLoading: (loading: boolean) => void;
     setError: (error: string | null) => void;
+    setFiles: (files: FileItem[]) => void;
+    toggleFileApplied: (fileId: string) => void;
+    setPrimaryVersion: (fileId: string, versionId: string) => void;
+    toggleFileExpansion: (fileId: string) => void;
+    selectFile: (fileId: string, versionId?: string) => void;
+    togglePreviewMode: () => void;
     resetState: () => void;
   };
 }
@@ -81,6 +140,12 @@ export function AppProvider({ children }: AppProviderProps) {
     setWidth: (width: number) => dispatch({ type: 'SET_WIDTH', payload: width }),
     setLoading: (loading: boolean) => dispatch({ type: 'SET_LOADING', payload: loading }),
     setError: (error: string | null) => dispatch({ type: 'SET_ERROR', payload: error }),
+    setFiles: (files: FileItem[]) => dispatch({ type: 'SET_FILES', payload: files }),
+    toggleFileApplied: (fileId: string) => dispatch({ type: 'TOGGLE_FILE_APPLIED', payload: fileId }),
+    setPrimaryVersion: (fileId: string, versionId: string) => dispatch({ type: 'SET_PRIMARY_VERSION', payload: { fileId, versionId } }),
+    toggleFileExpansion: (fileId: string) => dispatch({ type: 'TOGGLE_FILE_EXPANSION', payload: fileId }),
+    selectFile: (fileId: string, versionId?: string) => dispatch({ type: 'SELECT_FILE', payload: { fileId, versionId } }),
+    togglePreviewMode: () => dispatch({ type: 'TOGGLE_PREVIEW_MODE' }),
     resetState: () => dispatch({ type: 'RESET_STATE' }),
   }), [dispatch]);
 

@@ -1,7 +1,7 @@
 import styles from '../styles/SidePanel.module.css';
 import { TABS } from '../utils/constants';
 import { useAppContext } from '../contexts/AppContext';
-import { ArrowRightFromLine, BotMessageSquare, Code, User, FolderOpen } from 'lucide-react';
+import { ArrowRightFromLine, BotMessageSquare, Code, User, FolderOpen, Eye, EyeClosed } from 'lucide-react';
 
 interface PanelHeaderProps {
   onClose: () => void;
@@ -17,14 +17,28 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
 
   return (
     <div className={styles.panelHeader}>
-      <button className={styles.closeBtn} onClick={onClose}>
-        <ArrowRightFromLine size={24} />
-      </button>
       <div className={styles.tabBar}>
-        <button className={`${styles.tabBtn} ${activeTab === TABS.FILELIST ? styles.active : ''}`}
-          onClick={() => switchTab(TABS.FILELIST)}
+        <button className={styles.tabBtn} onClick={onClose}>
+          <ArrowRightFromLine size={24} />
+        </button>
+        <button 
+          className={`${styles.tabBtn} ${state.isPreviewMode ? styles.activePreview : ''}`}
+          onClick={actions.togglePreviewMode}
+          title={state.isPreviewMode ? "Hide Preview" : "Show Preview"}
         >
-          <FolderOpen size={24} />
+          {state.isPreviewMode ? <Eye size={24} /> : <EyeClosed size={24} />}
+        </button>
+      </div>
+
+      {/* divider */}
+      <div className={styles.divider}></div>
+
+      <div className={styles.tabBar}>
+        <button 
+          className={`${styles.tabBtn} ${activeTab === TABS.CHAT ? styles.active : ''}`}
+          onClick={() => switchTab(TABS.CHAT)}
+        >
+          <BotMessageSquare size={24} />
         </button>
         <button 
           className={`${styles.tabBtn} ${activeTab === TABS.CODE ? styles.active : ''}`}
@@ -32,11 +46,10 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
         >
           <Code size={24} />
         </button>
-        <button 
-          className={`${styles.tabBtn} ${activeTab === TABS.CHAT ? styles.active : ''}`}
-          onClick={() => switchTab(TABS.CHAT)}
+        <button className={`${styles.tabBtn} ${activeTab === TABS.FILELIST ? styles.active : ''}`}
+          onClick={() => switchTab(TABS.FILELIST)}
         >
-          <BotMessageSquare size={24} />
+          <FolderOpen size={24} />
         </button>
         <button className={`${styles.tabBtn} ${activeTab === TABS.USER ? styles.active : ''}`}
           onClick={() => switchTab('user')}
