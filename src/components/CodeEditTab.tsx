@@ -70,6 +70,7 @@ export default function CodeEditTab() {
           value={code}
           onChange={handleEditorChange}
           theme={oneDark}
+          height="100%"
           extensions={[language === 'javascript' ? javascript() : css()]}
           basicSetup={{
             lineNumbers: true,
@@ -82,6 +83,10 @@ export default function CodeEditTab() {
             autocompletion: true,
             highlightSelectionMatches: false,
             searchKeymap: true
+          }}
+          style={{
+            height: '100%',
+            fontSize: '14px'
           }}
         />
       </div>
