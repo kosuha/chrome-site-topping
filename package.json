@@ -23,6 +23,7 @@
   "dependencies": {
     "@crxjs/vite-plugin": "^2.0.3",
     "@vitejs/plugin-react": "^4.7.0",
+    "lucide-react": "^0.536.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "vite": "^7.0.6"

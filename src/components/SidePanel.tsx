@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import styles from '../styles/SidePanel.module.css';
 import { SIDE_PANEL, TABS } from '../utils/constants';
 import type { SidePanelProps } from '../types';
+import { ArrowRightFromLine, BotMessageSquare, Code } from 'lucide-react';
 
 export default function SidePanel({ isOpen, onClose }: SidePanelProps) {
   const [activeTab, setActiveTab] = useState<'code' | 'chat'>(TABS.CODE);
@@ -56,32 +57,31 @@ export default function SidePanel({ isOpen, onClose }: SidePanelProps) {
       className={`${styles.sidePanel} ${isOpen ? styles.open : ''}`}
       style={{ width: `${width}px` }}
     >
+      
+      <div className={styles.panelHeader}>
+        <button className={styles.closeBtn} onClick={onClose}>
+          <ArrowRightFromLine size={24} />
+        </button>
+        <div className={styles.tabBar}>
+          <button 
+            className={`${styles.tabBtn} ${activeTab === TABS.CODE ? styles.active : ''}`}
+            onClick={() => switchTab(TABS.CODE)}
+          >
+            <Code size={24} />
+          </button>
+          <button 
+            className={`${styles.tabBtn} ${activeTab === TABS.CHAT ? styles.active : ''}`}
+            onClick={() => switchTab(TABS.CHAT)}
+          >
+            <BotMessageSquare size={24} />
+          </button>
+        </div>
+      </div>
+      
       <div 
         className={styles.resizeHandle}
         onMouseDown={handleResizeStart}
       />
-      
-      <div className={styles.panelHeader}>
-        <h3 className={styles.title}>Site Topping</h3>
-        <button className={styles.closeBtn} onClick={onClose}>
-          &times;
-        </button>
-      </div>
-      
-      <div className={styles.tabBar}>
-        <button 
-          className={`${styles.tabBtn} ${activeTab === TABS.CODE ? styles.active : ''}`}
-          onClick={() => switchTab(TABS.CODE)}
-        >
-          코드 수정
-        </button>
-        <button 
-          className={`${styles.tabBtn} ${activeTab === TABS.CHAT ? styles.active : ''}`}
-          onClick={() => switchTab(TABS.CHAT)}
-        >
-          채팅
-        </button>
-      </div>
       
       <div className={styles.panelContent}>
         <div className={`${styles.tabContent} ${activeTab === TABS.CODE ? styles.active : ''}`}>
