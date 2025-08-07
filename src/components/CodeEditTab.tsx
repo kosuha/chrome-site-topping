@@ -1,5 +1,8 @@
 import { useState } from 'react';
-import Editor from '@monaco-editor/react';
+import CodeMirror from '@uiw/react-codemirror';
+import { javascript } from '@codemirror/lang-javascript';
+import { css } from '@codemirror/lang-css';
+import { oneDark } from '@codemirror/theme-one-dark';
 import styles from '../styles/CodeEditTab.module.css';
 
 type Language = 'javascript' | 'css';
@@ -63,23 +66,22 @@ export default function CodeEditTab() {
         </div>
       </div>
       <div className={styles.editorContainer}>
-        <Editor
-          height="100%"
-          language={language}
+        <CodeMirror
           value={code}
           onChange={handleEditorChange}
-          theme="vs-dark"
-          options={{
-            fontSize: 14,
-            minimap: { enabled: false },
-            scrollBeyondLastLine: false,
-            automaticLayout: true,
-            wordWrap: 'on',
-            lineNumbers: 'on',
-            glyphMargin: true,
-            folding: true,
-            lineDecorationsWidth: 10,
-            lineNumbersMinChars: 3,
+          theme={oneDark}
+          extensions={[language === 'javascript' ? javascript() : css()]}
+          basicSetup={{
+            lineNumbers: true,
+            foldGutter: true,
+            dropCursor: false,
+            allowMultipleSelections: false,
+            indentOnInput: true,
+            bracketMatching: true,
+            closeBrackets: true,
+            autocompletion: true,
+            highlightSelectionMatches: false,
+            searchKeymap: true
           }}
         />
       </div>
