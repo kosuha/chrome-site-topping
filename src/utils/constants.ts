@@ -14,4 +14,5 @@ export const CHROME_ACTIONS = {
 export const TABS = {
   CODE: 'code',
   CHAT: 'chat',
+  USER: 'user',
 } as const;

@@ -2,7 +2,7 @@ import React from 'react';
 import styles from '../styles/SidePanel.module.css';
 import { TABS } from '../utils/constants';
 import { useAppContext } from '../contexts/AppContext';
-import { ArrowRightFromLine, BotMessageSquare, Code } from 'lucide-react';
+import { ArrowRightFromLine, BotMessageSquare, Code, User } from 'lucide-react';
 
 interface PanelHeaderProps {
   onClose: () => void;
@@ -12,7 +12,7 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
   const { state, actions } = useAppContext();
   const { activeTab } = state;
 
-  const switchTab = (tabName: 'code' | 'chat') => {
+  const switchTab = (tabName: 'code' | 'chat' | 'user') => {
     actions.setActiveTab(tabName);
   };
 
@@ -33,6 +33,11 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
           onClick={() => switchTab(TABS.CHAT)}
         >
           <BotMessageSquare size={24} />
+        </button>
+        <button className={`${styles.tabBtn} ${activeTab === TABS.USER ? styles.active : ''}`}
+          onClick={() => switchTab('user')}
+        >
+          <User size={24} />
         </button>
       </div>
     </div>

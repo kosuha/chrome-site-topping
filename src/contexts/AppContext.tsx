@@ -2,7 +2,7 @@ import React, { createContext, useContext, useReducer, ReactNode } from 'react';
 
 export interface AppState {
   isOpen: boolean;
-  activeTab: 'code' | 'chat';
+  activeTab: 'code' | 'chat' | 'user';
   width: number;
   isLoading: boolean;
   error: string | null;
@@ -12,7 +12,7 @@ export type AppAction =
   | { type: 'TOGGLE_PANEL' }
   | { type: 'OPEN_PANEL' }
   | { type: 'CLOSE_PANEL' }
-  | { type: 'SET_ACTIVE_TAB'; payload: 'code' | 'chat' }
+  | { type: 'SET_ACTIVE_TAB'; payload: 'code' | 'chat' | 'user' }
   | { type: 'SET_WIDTH'; payload: number }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string | null }
@@ -56,7 +56,7 @@ interface AppContextType {
     togglePanel: () => void;
     openPanel: () => void;
     closePanel: () => void;
-    setActiveTab: (tab: 'code' | 'chat') => void;
+    setActiveTab: (tab: 'code' | 'chat' | 'user') => void;
     setWidth: (width: number) => void;
     setLoading: (loading: boolean) => void;
     setError: (error: string | null) => void;
@@ -77,7 +77,7 @@ export function AppProvider({ children }: AppProviderProps) {
     togglePanel: () => dispatch({ type: 'TOGGLE_PANEL' }),
     openPanel: () => dispatch({ type: 'OPEN_PANEL' }),
     closePanel: () => dispatch({ type: 'CLOSE_PANEL' }),
-    setActiveTab: (tab: 'code' | 'chat') => dispatch({ type: 'SET_ACTIVE_TAB', payload: tab }),
+    setActiveTab: (tab: 'code' | 'chat' | 'user') => dispatch({ type: 'SET_ACTIVE_TAB', payload: tab }),
     setWidth: (width: number) => dispatch({ type: 'SET_WIDTH', payload: width }),
     setLoading: (loading: boolean) => dispatch({ type: 'SET_LOADING', payload: loading }),
     setError: (error: string | null) => dispatch({ type: 'SET_ERROR', payload: error }),

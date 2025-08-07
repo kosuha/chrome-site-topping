@@ -5,6 +5,7 @@ import { useAppContext } from '../contexts/AppContext';
 import CodeEditTab from './CodeEditTab';
 import ChatTab from './ChatTab';
 import PanelHeader from './PanelHeader';
+import UserTab from './UserTab';
 
 interface SidePanelProps {
   isOpen: boolean;
@@ -71,6 +72,9 @@ export default function SidePanel({ isOpen, onClose }: SidePanelProps) {
         </div>
         <div className={`${styles.tabContent} ${activeTab === TABS.CHAT ? styles.active : ''}`}>
           <ChatTab />
+        </div>
+        <div className={`${styles.tabContent} ${activeTab === TABS.USER ? styles.active : ''}`}>
+          <UserTab />
         </div>
       </div>
     </div>
