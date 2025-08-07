@@ -1,10 +1,88 @@
-import React from 'react';
+import { useState } from 'react';
+import Editor from '@monaco-editor/react';
+import styles from '../styles/CodeEditTab.module.css';
+
+type Language = 'javascript' | 'css';
+
+const DEFAULT_CODE = {
+  javascript: `// Welcome to Monaco Editor
+function hello() {
+  console.log("Hello World!");
+}
+
+hello();`,
+  css: `/* CSS Styles */
+.container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.title {
+  color: white;
+  font-size: 24px;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}`
+};
 
 export default function CodeEditTab() {
+  const [language, setLanguage] = useState<Language>('javascript');
+  const [code, setCode] = useState(DEFAULT_CODE.javascript);
+
+  const handleLanguageChange = (newLanguage: Language) => {
+    setLanguage(newLanguage);
+    setCode(DEFAULT_CODE[newLanguage]);
+  };
+
+  const handleEditorChange = (value: string | undefined) => {
+    setCode(value || '');
+  };
+
   return (
-    <div>
-      <h3>코드 수정</h3>
-      <p>코드 수정 기능이 여기에 구현됩니다.</p>
+    <div className={styles.container}>
+      <div className={styles.header}>
+        <div className={styles.headerContent}>
+          <h3 className={styles.title}>코드 에디터</h3>
+          <div className={styles.languageSelector}>
+            <button
+              className={`${styles.languageButton} ${language === 'javascript' ? styles.active : ''}`}
+              onClick={() => handleLanguageChange('javascript')}
+            >
+              JavaScript
+            </button>
+            <button
+              className={`${styles.languageButton} ${language === 'css' ? styles.active : ''}`}
+              onClick={() => handleLanguageChange('css')}
+            >
+              CSS
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className={styles.editorContainer}>
+        <Editor
+          height="100%"
+          language={language}
+          value={code}
+          onChange={handleEditorChange}
+          theme="vs-dark"
+          options={{
+            fontSize: 14,
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            automaticLayout: true,
+            wordWrap: 'on',
+            lineNumbers: 'on',
+            glyphMargin: true,
+            folding: true,
+            lineDecorationsWidth: 10,
+            lineNumbersMinChars: 3,
+          }}
+        />
+      </div>
     </div>
   );
 }

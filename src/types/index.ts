@@ -11,12 +11,6 @@ export interface SidePanelState {
   activeTab: 'code' | 'chat';
 }
 
-// 컴포넌트 Props 타입들
-export interface SidePanelProps {
-  isOpen: boolean;
-  onClose: () => void;
-}
-
 export interface FloatingButtonProps {
   onClick: () => void;
   isVisible: boolean;

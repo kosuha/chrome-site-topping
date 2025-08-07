@@ -1,14 +1,19 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import styles from '../styles/SidePanel.module.css';
 import { SIDE_PANEL, TABS } from '../utils/constants';
-import type { SidePanelProps } from '../types';
+import { useAppContext } from '../contexts/AppContext';
 import { ArrowRightFromLine, BotMessageSquare, Code } from 'lucide-react';
 import CodeEditTab from './CodeEditTab';
 import ChatTab from './ChatTab';
 
+interface SidePanelProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
 export default function SidePanel({ isOpen, onClose }: SidePanelProps) {
-  const [activeTab, setActiveTab] = useState<'code' | 'chat'>(TABS.CODE);
-  const [width, setWidth] = useState<number>(SIDE_PANEL.DEFAULT_WIDTH);
+  const { state, actions } = useAppContext();
+  const { activeTab, width } = state;
   const sidePanelRef = useRef<HTMLDivElement>(null);
   const isResizing = useRef(false);
   const startX = useRef(0);
@@ -29,7 +34,7 @@ export default function SidePanel({ isOpen, onClose }: SidePanelProps) {
     
     const deltaX = startX.current - e.clientX;
     const newWidth = Math.max(SIDE_PANEL.MIN_WIDTH, Math.min(SIDE_PANEL.MAX_WIDTH, startWidth.current + deltaX));
-    setWidth(newWidth);
+    actions.setWidth(newWidth);
   };
 
   const handleResizeEnd = () => {
@@ -40,7 +45,7 @@ export default function SidePanel({ isOpen, onClose }: SidePanelProps) {
   };
 
   const switchTab = (tabName: 'code' | 'chat') => {
-    setActiveTab(tabName);
+    actions.setActiveTab(tabName);
   };
 
   useEffect(() => {

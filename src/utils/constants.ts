@@ -1,7 +1,7 @@
 // 사이드패널 크기 제한
 export const SIDE_PANEL = {
-  MIN_WIDTH: 350,
-  MAX_WIDTH: 800,
+  MIN_WIDTH: 450,
+  MAX_WIDTH: 2000,
   DEFAULT_WIDTH: 420,
 } as const;
 

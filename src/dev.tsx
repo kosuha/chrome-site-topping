@@ -1,6 +1,17 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
+import { AppProvider, useAppContext } from './contexts/AppContext';
 import SidePanel from './components/SidePanel';
+
+const DevSidePanel = () => {
+  const { state, actions } = useAppContext();
+  
+  useEffect(() => {
+    actions.openPanel();
+  }, []);
+
+  return <SidePanel isOpen={true} onClose={() => console.log('Close clicked')} />;
+};
 
 const DevApp: React.FC = () => {
   return (
@@ -11,7 +22,9 @@ const DevApp: React.FC = () => {
       height: '100vh',
       zIndex: 10000 
     }}>
-      <SidePanel isOpen={true} onClose={() => console.log('Close clicked')} />
+      <AppProvider>
+        <DevSidePanel />
+      </AppProvider>
     </div>
   );
 };

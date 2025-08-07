@@ -9,83 +9,118 @@ This is a Chrome extension called "Site Topping" that displays a glassmorphism-s
 ## Architecture
 
 - **React + TypeScript**: Modern component-based architecture with type safety
-- **Vite Build System**: Fast development and optimized production builds
+- **Vite Build System**: Fast development and optimized production builds with dual-mode configuration
 - **Manifest V3 Extension**: Uses service worker background script instead of persistent background page
 - **Content Script Injection**: React app automatically injected into all web pages (`*://*/*`)
 - **Message Passing**: Background script communicates with React content script via `chrome.tabs.sendMessage`
 - **CSS Modules**: Scoped glassmorphism styling with CSS modules
-- **Component Architecture**: Modular React components for maintainability
+- **Component Architecture**: Modular React components with Context API for state management
 
 ## Key Components
 
 - `manifest.json` - Extension configuration with permissions for `activeTab` and `scripting`
 - `src/background.ts` - TypeScript service worker handling extension icon clicks and script injection
 - `src/content.tsx` - React app entry point with message handling and URL change detection
-- `src/SidePanel.tsx` - Main React component with tabbed interface and resize functionality
-- `src/SidePanel.module.css` - Glassmorphism styling with CSS modules
-- `vite.config.ts` - Vite configuration with Chrome extension plugin
+- `src/components/AppWrapper.tsx` - Main wrapper component orchestrating FloatingButton and SidePanel
+- `src/components/SidePanel.tsx` - Main React component with tabbed interface and resize functionality
+- `src/contexts/AppContext.tsx` - React Context with useReducer for global state management
+- `src/services/chrome.ts` - Chrome extension API abstraction with retry logic
+- `vite.config.ts` - Dual-mode Vite configuration for development preview and extension builds
 
 ## Development Commands
 
-Modern React development workflow:
+### Standard Development Workflow
 
 ```bash
-npm run dev        # Start Vite dev server with hot reloading
-npm run build      # Build for production
+npm run dev        # Start Vite dev server for Chrome extension development
+npm run build      # Build extension for production (generates dist/ folder)
 npm run preview    # Preview production build
 ```
 
-For Chrome extension development:
+### Development Preview Mode
+
+```bash
+npm run dev:preview # Start standalone web preview mode (opens dev.html)
+```
+
+This special mode allows developing the UI components in a regular browser without Chrome extension APIs, useful for rapid UI development and testing.
+
+### Chrome Extension Development Process
+
 1. Run `npm run build` to generate `dist/` folder
 2. Load unpacked extension from `dist/` folder in Chrome (`chrome://extensions/`)
 3. Use `npm run dev` for development with hot reloading
-4. Reload extension in Chrome after significant changes
+4. Reload extension in Chrome after significant changes to background script or manifest
 
 ## Architecture Details
 
-**React Component Structure:**
-- `App` component manages global state (isOpen) and message handling
-- `SidePanel` component handles UI rendering, tab switching, and resize logic
-- Proper cleanup of event listeners and observers in useEffect
-- State management through React hooks (useState, useRef)
+### State Management Pattern
 
-**Tabbed Interface:**
-- Two main tabs: "코드 수정" (Code Edit) and "채팅" (Chat)
-- Tab switching with smooth animations and visual feedback
-- Empty content areas ready for future feature implementation
+The application uses a centralized state management pattern:
+- **AppContext** (`src/contexts/AppContext.tsx`) - React Context with useReducer for global state
+- **State Structure**: `{ isOpen, activeTab, width, isLoading, error }`
+- **Action-based Updates**: Dispatched through context actions (togglePanel, setActiveTab, etc.)
+- **Component Integration**: All components access state via `useAppContext()` hook
 
-**Resizable Sidebar:**
-- Mouse-based drag resize on left edge (350px-800px range)
-- React state management for width with proper event cleanup
-- Responsive design maintains glassmorphism effects during resize
+### Chrome Extension Communication Flow
 
-**Message Flow:**
-1. User clicks extension icon → `background.ts` receives action
-2. Background script attempts `chrome.tabs.sendMessage` to React content script
-3. If message fails, fallback injects content script then retries message
-4. React App component toggles `isOpen` state, triggering SidePanel render
+1. **User Interaction**: User clicks extension icon
+2. **Background Script**: `background.ts` receives `chrome.action.onClicked` event
+3. **Message Passing**: Background calls `toggleSidePanel(tabId)` from `services/chrome.ts`
+4. **Retry Logic**: If first message fails, injects content script and retries after 100ms
+5. **Content Script**: React app in `content.tsx` receives message via `useChromeMessage` hook
+6. **State Update**: AppWrapper component calls `actions.togglePanel()` to update global state
+7. **UI Render**: SidePanel component re-renders based on updated `isOpen` state
 
-**Glassmorphism Implementation:**
-- CSS Modules for scoped styling and component isolation
-- Multi-layer backdrop filters with varying blur intensities (10px-20px)
-- Transparent backgrounds using rgba with alpha 0.08-0.29
-- Inset shadows and highlights using `::before`/`::after` pseudo-elements
-- Gradient text effects using background-clip: text
-- Smooth cubic-bezier transitions for all interactive elements
+### Component Hierarchy
 
-## Development Features
+```
+content.tsx (App)
+├── AppProvider (Context)
+    └── AppWrapper
+        ├── FloatingButton (visible when panel closed)
+        └── SidePanel (visible when panel open)
+            ├── CodeEditTab (Monaco Editor with JavaScript/CSS)
+            └── ChatTab (placeholder for future chat functionality)
+```
 
-**Type Safety:**
-- Full TypeScript support with Chrome API types
-- CSS Module type definitions
-- Proper event handler typing
+### Tabbed Interface System
 
-**Hot Reloading:**
-- Vite dev server with instant updates
-- Automatic extension recompilation
-- React Fast Refresh for component updates
+- **Tab Management**: Controlled by `activeTab` state in AppContext
+- **Tab Components**: `CodeEditTab` and `ChatTab` with independent state
+- **Tab Switching**: Icon-based tab buttons with active state styling
+- **Content Rendering**: Tab content conditionally rendered with CSS transitions
 
-**Modern Build System:**
-- Tree-shaking and code splitting
-- Optimized bundle sizes for extension performance
-- Source maps for debugging
+### Resizable Sidebar Implementation
+
+- **Mouse-based Resize**: Drag handle on left edge of sidebar
+- **Size Constraints**: 450px-2000px width range (defined in `utils/constants.ts`)
+- **Event Handling**: Mouse events managed in SidePanel with proper cleanup
+- **State Persistence**: Width stored in AppContext state (resets on page reload)
+
+### Monaco Editor Integration
+
+- **Code Editor**: Uses `@monaco-editor/react` for syntax highlighting
+- **Language Support**: JavaScript and CSS with language switcher
+- **Editor Configuration**: Dark theme, no minimap, word wrap enabled
+- **Default Content**: Provides sample code for both JavaScript and CSS
+
+### Development Mode Configuration
+
+The Vite config supports two distinct modes:
+- **Extension Mode** (default): Builds for Chrome extension with crx plugin
+- **Preview Mode** (`DEV_PREVIEW=true`): Standalone web app for UI development
+
+### Custom Hooks
+
+- `useChromeMessage` - Handles Chrome extension message listening
+- `useUrlChange` - Detects URL changes for SPA navigation
+- `useAppContext` - Provides access to global state and actions
+
+### Glassmorphism Styling
+
+- **CSS Modules**: Scoped styling prevents conflicts with host page
+- **Multi-layer Effects**: Backdrop filters with varying blur intensities
+- **Transparency**: RGBA backgrounds with subtle opacity
+- **Depth Effects**: Inset shadows and highlights using pseudo-elements
+- **Smooth Transitions**: Cubic-bezier animations for interactive elements
