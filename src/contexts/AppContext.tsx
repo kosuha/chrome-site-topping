@@ -1,8 +1,8 @@
-import React, { createContext, useContext, useReducer, ReactNode } from 'react';
+import React, { createContext, useContext, useReducer, ReactNode, useMemo } from 'react';
 
 export interface AppState {
   isOpen: boolean;
-  activeTab: 'code' | 'chat' | 'user';
+  activeTab: 'code' | 'chat' | 'user' | 'filelist';
   width: number;
   isLoading: boolean;
   error: string | null;
@@ -12,7 +12,7 @@ export type AppAction =
   | { type: 'TOGGLE_PANEL' }
   | { type: 'OPEN_PANEL' }
   | { type: 'CLOSE_PANEL' }
-  | { type: 'SET_ACTIVE_TAB'; payload: 'code' | 'chat' | 'user' }
+  | { type: 'SET_ACTIVE_TAB'; payload: 'code' | 'chat' | 'user'| 'filelist' }
   | { type: 'SET_WIDTH'; payload: number }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string | null }
@@ -56,7 +56,7 @@ interface AppContextType {
     togglePanel: () => void;
     openPanel: () => void;
     closePanel: () => void;
-    setActiveTab: (tab: 'code' | 'chat' | 'user') => void;
+    setActiveTab: (tab: 'code' | 'chat' | 'user' | 'filelist') => void;
     setWidth: (width: number) => void;
     setLoading: (loading: boolean) => void;
     setError: (error: string | null) => void;
@@ -73,22 +73,22 @@ interface AppProviderProps {
 export function AppProvider({ children }: AppProviderProps) {
   const [state, dispatch] = useReducer(appReducer, initialState);
 
-  const actions = {
+  const actions = useMemo(() => ({
     togglePanel: () => dispatch({ type: 'TOGGLE_PANEL' }),
     openPanel: () => dispatch({ type: 'OPEN_PANEL' }),
     closePanel: () => dispatch({ type: 'CLOSE_PANEL' }),
-    setActiveTab: (tab: 'code' | 'chat' | 'user') => dispatch({ type: 'SET_ACTIVE_TAB', payload: tab }),
+    setActiveTab: (tab: 'code' | 'chat' | 'user' | 'filelist') => dispatch({ type: 'SET_ACTIVE_TAB', payload: tab }),
     setWidth: (width: number) => dispatch({ type: 'SET_WIDTH', payload: width }),
     setLoading: (loading: boolean) => dispatch({ type: 'SET_LOADING', payload: loading }),
     setError: (error: string | null) => dispatch({ type: 'SET_ERROR', payload: error }),
     resetState: () => dispatch({ type: 'RESET_STATE' }),
-  };
+  }), [dispatch]);
 
-  const contextValue: AppContextType = {
+  const contextValue = useMemo(() => ({
     state,
     dispatch,
     actions,
-  };
+  }), [state, dispatch, actions]);
 
   return (
     <AppContext.Provider value={contextValue}>

@@ -1,13 +1,16 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 export const useUrlChange = (callback: () => void) => {
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+
   useEffect(() => {
     let lastUrl = window.location.href;
 
     const handleUrlChange = () => {
       if (window.location.href !== lastUrl) {
         lastUrl = window.location.href;
-        callback();
+        callbackRef.current();
       }
     };
 
@@ -32,5 +35,5 @@ export const useUrlChange = (callback: () => void) => {
       window.history.replaceState = originalReplaceState;
       window.removeEventListener('popstate', handleUrlChange);
     };
-  }, [callback]);
+  }, []);
 };

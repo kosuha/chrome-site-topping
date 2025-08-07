@@ -15,4 +15,5 @@ export const TABS = {
   CODE: 'code',
   CHAT: 'chat',
   USER: 'user',
+  FILELIST: 'filelist',
 } as const;

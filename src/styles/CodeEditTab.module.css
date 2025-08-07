@@ -3,23 +3,27 @@
   display: flex;
   flex-direction: column;
   background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(10px);
   border-radius: 12px;
   overflow: hidden;
 }
 
 .header {
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(15px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 20px 24px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   position: relative;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .headerContent {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
 }
 
 .header::before {
@@ -32,21 +36,35 @@
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(255, 255, 255, 0.2),
+    rgba(255, 255, 255, 0.3),
+    transparent
+  );
+}
+
+.header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0, 0, 0, 0.1),
     transparent
   );
 }
 
 .title {
   margin: 0;
-  color: white;
+  color: #666;
   font-size: 18px;
-  font-weight: 600;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-  background: linear-gradient(135deg, #ffffff 0%, #e0e0e0 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  font-weight: 700;
   background-clip: text;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .editorContainer {
@@ -55,7 +73,7 @@
   height: 100%;
   position: relative;
   background: rgba(0, 0, 0, 0.2);
-  backdrop-filter: blur(5px);
+  border-radius: 12px;
 }
 
 .editorContainer::before {
@@ -74,45 +92,32 @@
   z-index: 1;
 }
 
-/* Monaco Editor styling integration */
-.editorContainer :global(.monaco-editor) {
-  border-radius: 8px;
-}
-
-.editorContainer :global(.monaco-editor .margin) {
-  background: rgba(30, 30, 30, 0.8) !important;
-}
-
-.editorContainer :global(.monaco-editor .monaco-editor-background) {
-  background: rgba(30, 30, 30, 0.6) !important;
-}
-
-.editorContainer :global(.monaco-scrollable-element) {
-  border-radius: 0 0 8px 8px;
-}
-
 /* Language Selector Styles */
 .languageSelector {
   display: flex;
-  gap: 4px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
   padding: 4px;
-  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .languageButton {
-  padding: 8px 16px;
+  padding: 4px 8px;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   color: rgba(255, 255, 255, 0.7);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
+  min-width: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .languageButton::before {
@@ -122,15 +127,9 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, transparent 100%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.05) 100%);
   opacity: 0;
-  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.languageButton:hover {
-  color: white;
-  background: rgba(255, 255, 255, 0.1);
-  transform: translateY(-1px);
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .languageButton:hover::before {
@@ -139,17 +138,20 @@
 
 .languageButton.active {
   color: white;
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(20px);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.8) 0%, rgba(37, 99, 235, 0.8) 100%);
   box-shadow: 
-    0 2px 8px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    0 4px 16px rgba(59, 130, 246, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 1px 3px rgba(0, 0, 0, 0.2);
+  transform: translateY(-1px);
 }
 
 .languageButton.active::before {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.1) 100%);
   opacity: 1;
 }
 
 .languageButton:active {
   transform: translateY(0);
+  transition: transform 0.1s ease;
 }

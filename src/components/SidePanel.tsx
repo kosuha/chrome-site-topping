@@ -6,6 +6,7 @@ import CodeEditTab from './CodeEditTab';
 import ChatTab from './ChatTab';
 import PanelHeader from './PanelHeader';
 import UserTab from './UserTab';
+import FileListTab from './FileListTab';
 
 interface SidePanelProps {
   isOpen: boolean;
@@ -75,6 +76,9 @@ export default function SidePanel({ isOpen, onClose }: SidePanelProps) {
         </div>
         <div className={`${styles.tabContent} ${activeTab === TABS.USER ? styles.active : ''}`}>
           <UserTab />
+        </div>
+        <div className={`${styles.tabContent} ${activeTab === TABS.FILELIST ? styles.active : ''}`}>
+          <FileListTab />
         </div>
       </div>
     </div>
