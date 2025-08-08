@@ -22,11 +22,11 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
     actions.setActiveTab(tabName);
   };
 
-  const handlePreviewToggle = () => {
+  const handlePreviewToggle = async () => {
     if (state.isPreviewMode) {
       removeCodeFromPage();
     } else {
-      applyCodeToPage(state.editorCode.css, state.editorCode.javascript);
+      await applyCodeToPage(state.editorCode.css, state.editorCode.javascript);
     }
     actions.togglePreviewMode();
   };

@@ -47,8 +47,8 @@ const initialState: AppState = {
   selectedVersionId: null,
   isPreviewMode: false,
   editorCode: {
-    javascript: '// JavaScript code goes here',
-    css: '/* CSS Styles */'
+    javascript: '',
+    css: ''
   },
 };
 

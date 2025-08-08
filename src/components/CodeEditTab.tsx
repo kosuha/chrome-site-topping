@@ -9,11 +9,6 @@ import { ChevronDown } from 'lucide-react';
 
 type Language = 'javascript' | 'css';
 
-const DEFAULT_CODE = {
-  javascript: `// JavaScript code goes here`,
-  css: `/* CSS Styles */`
-};
-
 export default function CodeEditTab() {
   const { state, actions } = useAppContext();
   const [language, setLanguage] = useState<Language>('javascript');

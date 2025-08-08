@@ -7,7 +7,7 @@ interface AppliedCode {
 
 let appliedCode: AppliedCode = {};
 
-export function applyCodeToPage(css: string, js: string): void {
+export async function applyCodeToPage(css: string, js: string): Promise<void> {
   removeCodeFromPage();
 
   if (css.trim()) {
@@ -15,7 +15,7 @@ export function applyCodeToPage(css: string, js: string): void {
   }
 
   if (js.trim()) {
-    applyJSCode(js);
+    await applyJSCode(js);
   }
 }
 
@@ -78,27 +78,73 @@ function addCSSScoping(css: string): string {
   return processedLines.join('\n');
 }
 
-function applyJSCode(js: string): void {
+async function applyJSCode(js: string): Promise<void> {
   try {
-    const scriptElement = document.createElement('script');
-    scriptElement.id = `${EXTENSION_PREFIX}injected-js`;
-    scriptElement.type = 'text/javascript';
+    // Content script에서는 background script를 통해 실행
+    if (typeof chrome !== 'undefined' && chrome.runtime) {
+      try {
+        // background script에 메시지 전송
+        await chrome.runtime.sendMessage({
+          type: 'EXECUTE_SCRIPT',
+          code: js
+        });
+        
+        console.log('[Site Topping] JavaScript execution requested via background script');
+      } catch (runtimeError) {
+        console.error('[Site Topping] Runtime message failed:', runtimeError);
+        // fallback to other methods
+        fallbackJSExecution(js);
+      }
+    } else {
+      // 크롬 API가 없는 경우 fallback
+      fallbackJSExecution(js);
+    }
     
-    const wrappedJS = `
-(function() {
-  try {
-    ${js}
-  } catch (error) {
-    console.error('[Site Topping] JavaScript execution error:', error);
-  }
-})();
-`;
+    // 추적을 위해 더미 스크립트 엘리먼트 생성
+    const markerElement = document.createElement('script');
+    markerElement.id = `${EXTENSION_PREFIX}injected-js-marker`;
+    markerElement.type = 'text/plain';
+    markerElement.dataset.applied = 'true';
+    document.head.appendChild(markerElement);
+    appliedCode.js = markerElement;
     
-    scriptElement.textContent = wrappedJS;
-    document.head.appendChild(scriptElement);
-    appliedCode.js = scriptElement;
   } catch (error) {
     console.error('[Site Topping] Failed to inject JavaScript:', error);
+  }
+}
+
+// Fallback methods for JS execution
+function fallbackJSExecution(js: string): void {
+  // Method 1: Blob URL 방식
+  try {
+    const blob = new Blob([js], { type: 'application/javascript' });
+    const url = URL.createObjectURL(blob);
+    const script = document.createElement('script');
+    script.src = url;
+    script.onload = () => URL.revokeObjectURL(url);
+    document.head.appendChild(script);
+    return;
+  } catch (blobError) {
+    console.warn('[Site Topping] Blob URL method failed:', blobError);
+  }
+
+  // Method 2: Data URL 방식
+  try {
+    const dataUrl = `data:application/javascript;base64,${btoa(js)}`;
+    const script = document.createElement('script');
+    script.src = dataUrl;
+    document.head.appendChild(script);
+    return;
+  } catch (dataUrlError) {
+    console.warn('[Site Topping] Data URL method failed:', dataUrlError);
+  }
+
+  // Method 3: Function 생성자 (이미 실패했지만 다시 시도)
+  try {
+    const func = new Function(js);
+    func();
+  } catch (error) {
+    console.warn('[Site Topping] All JavaScript execution methods failed. CSP is too restrictive.');
   }
 }
 
