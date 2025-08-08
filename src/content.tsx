@@ -1,5 +1,6 @@
 import { createRoot, Root } from 'react-dom/client';
 import { AppProvider } from './contexts/AppContext';
+import { AuthProvider } from './contexts/AuthContext';
 import AppWrapper from './components/AppWrapper';
 
 let root: Root | null = null;
@@ -8,7 +9,9 @@ let container: HTMLDivElement | null = null;
 function App() {
   return (
     <AppProvider>
-      <AppWrapper />
+      <AuthProvider>
+        <AppWrapper />
+      </AuthProvider>
     </AppProvider>
   );
 }

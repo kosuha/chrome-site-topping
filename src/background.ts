@@ -1,8 +1,56 @@
 import { toggleSidePanel } from './services/chrome';
+import { supabase } from './services/supabase';
 
 chrome.action.onClicked.addListener(async (tab) => {
     if (tab.id) {
         await toggleSidePanel(tab.id);
+    }
+});
+
+// OAuth tab listener
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete' && tab.url) {
+        const url = new URL(tab.url)
+        
+        // Check if this is our OAuth callback
+        if (url.pathname === '/auth/callback' || url.hash.includes('access_token')) {
+            try {
+                // Extract tokens from URL
+                const hashParams = new URLSearchParams(url.hash.substring(1))
+                const accessToken = hashParams.get('access_token')
+                const refreshToken = hashParams.get('refresh_token')
+                
+                if (accessToken) {
+                    // Set the session in Supabase
+                    const { data, error } = await supabase.auth.setSession({
+                        access_token: accessToken,
+                        refresh_token: refreshToken || ''
+                    })
+                    
+                    if (!error) {
+                        // Store user session
+                        await chrome.storage.local.set({
+                            'supabase.auth.token': JSON.stringify(data.session)
+                        })
+                        
+                        // Close the auth tab
+                        chrome.tabs.remove(tabId)
+                        
+                        // Notify content script of successful auth
+                        chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+                            if (tabs[0]) {
+                                chrome.tabs.sendMessage(tabs[0].id!, {
+                                    type: 'AUTH_SUCCESS',
+                                    user: data.user
+                                })
+                            }
+                        })
+                    }
+                }
+            } catch (error) {
+                console.error('OAuth callback error:', error)
+            }
+        }
     }
 });
 
@@ -21,6 +69,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 sendResponse({ success: false, error: error.message });
             });
         return true; // 비동기 응답을 위해 true 반환
+    }
+
+    // Handle auth requests from content script
+    if (message.type === 'INIT_OAUTH') {
+        initOAuth(message.provider)
+            .then(sendResponse)
+            .catch(error => sendResponse({ error: error.message }))
+        return true // Keep message channel open for async response
     }
 });
 
@@ -76,5 +132,26 @@ async function executeScriptInTab(tabId: number, code: string): Promise<any> {
             console.error('[Background] All execution methods failed:', error);
             throw error;
         }
+    }
+}
+
+async function initOAuth(provider: string) {
+    try {
+        const { data, error } = await supabase.auth.signInWithOAuth({
+            provider: provider as any,
+            options: {
+                redirectTo: chrome.identity.getRedirectURL()
+            }
+        })
+        
+        if (error) throw error
+        
+        // Open OAuth URL in new tab
+        await chrome.tabs.create({ url: data.url })
+        
+        return { success: true }
+    } catch (error) {
+        console.error('OAuth initialization error:', error)
+        throw error
     }
 }

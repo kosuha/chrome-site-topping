@@ -1,0 +1,132 @@
+.container {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+}
+
+.userInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.userInfo h3 {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.userInfo p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+}
+
+.avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  align-self: flex-start;
+}
+
+.error {
+  padding: 12px;
+  background: rgba(255, 59, 48, 0.15);
+  border: 1px solid rgba(255, 59, 48, 0.3);
+  border-radius: 8px;
+  color: #ff6b6b;
+  font-size: 14px;
+  text-align: center;
+}
+
+.providers {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.provider {
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(20px);
+}
+
+.provider:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+.provider:active {
+  transform: translateY(0);
+}
+
+.google {
+  background: linear-gradient(135deg, rgba(219, 68, 55, 0.1) 0%, rgba(66, 133, 244, 0.1) 100%);
+  border-color: rgba(66, 133, 244, 0.3);
+}
+
+.google:hover {
+  background: linear-gradient(135deg, rgba(219, 68, 55, 0.2) 0%, rgba(66, 133, 244, 0.2) 100%);
+  border-color: rgba(66, 133, 244, 0.5);
+}
+
+.kakao {
+  background: linear-gradient(135deg, rgba(255, 235, 51, 0.1) 0%, rgba(255, 208, 0, 0.1) 100%);
+  border-color: rgba(255, 235, 51, 0.3);
+  color: rgba(60, 60, 60, 0.9);
+}
+
+.kakao:hover {
+  background: linear-gradient(135deg, rgba(255, 235, 51, 0.2) 0%, rgba(255, 208, 0, 0.2) 100%);
+  border-color: rgba(255, 235, 51, 0.5);
+  color: rgba(60, 60, 60, 1);
+}
+
+.signOutButton {
+  padding: 12px 16px;
+  background: rgba(255, 59, 48, 0.1);
+  border: 1px solid rgba(255, 59, 48, 0.3);
+  border-radius: 8px;
+  color: #ff6b6b;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(20px);
+}
+
+.signOutButton:hover {
+  background: rgba(255, 59, 48, 0.2);
+  border-color: rgba(255, 59, 48, 0.5);
+  transform: translateY(-1px);
+}
+
+.signOutButton:active {
+  transform: translateY(0);
+}

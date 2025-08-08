@@ -5,7 +5,10 @@
   "description": "Site Topping Extension",
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "identity",
+    "tabs",
+    "storage"
   ],
   "host_permissions": [
     "*://*/*"
