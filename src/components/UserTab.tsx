@@ -1,6 +1,6 @@
 
 import { useAuth } from '../contexts/AuthContext'
-import styles from '../styles/LoginTab.module.css'
+import styles from '../styles/UserTab.module.css'
 
 export default function UserTab() {
   const { user, loading, error, signInWithProvider, signOut } = useAuth()

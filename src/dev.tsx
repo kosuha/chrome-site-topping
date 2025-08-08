@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import { AppProvider, useAppContext } from './contexts/AppContext';
+import { AuthProvider } from './contexts/AuthContext';
 import SidePanel from './components/SidePanel';
 
 const DevPanel: React.FC = () => {
@@ -15,9 +16,11 @@ const DevPanel: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <AppProvider>
-      <DevPanel />
-    </AppProvider>
+    <AuthProvider>
+      <AppProvider>
+        <DevPanel />
+      </AppProvider>
+    </AuthProvider>
   );
 };
 

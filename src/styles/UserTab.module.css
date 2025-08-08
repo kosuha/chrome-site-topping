@@ -89,21 +89,23 @@
 .google {
   background: linear-gradient(135deg, rgba(219, 68, 55, 0.1) 0%, rgba(66, 133, 244, 0.1) 100%);
   border-color: rgba(66, 133, 244, 0.3);
+  color: rgba(60, 60, 60, 1);
 }
 
 .google:hover {
   background: linear-gradient(135deg, rgba(219, 68, 55, 0.2) 0%, rgba(66, 133, 244, 0.2) 100%);
   border-color: rgba(66, 133, 244, 0.5);
+  color: rgba(60, 60, 60, 1);
 }
 
 .kakao {
-  background: linear-gradient(135deg, rgba(255, 235, 51, 0.1) 0%, rgba(255, 208, 0, 0.1) 100%);
-  border-color: rgba(255, 235, 51, 0.3);
-  color: rgba(60, 60, 60, 0.9);
+  background: linear-gradient(135deg, rgba(255, 235, 51, 0.5) 0%, rgba(255, 208, 0, 0.5) 100%);
+  border-color: rgb(255, 235, 51, 0.5);
+  color: rgba(60, 60, 60, 1);
 }
 
 .kakao:hover {
-  background: linear-gradient(135deg, rgba(255, 235, 51, 0.2) 0%, rgba(255, 208, 0, 0.2) 100%);
+  background: linear-gradient(135deg, rgba(255, 235, 51, 0.7) 0%, rgba(255, 208, 0, 0.7) 100%);
   border-color: rgba(255, 235, 51, 0.5);
   color: rgba(60, 60, 60, 1);
 }

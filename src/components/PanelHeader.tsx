@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import styles from '../styles/SidePanel.module.css';
 import { TABS } from '../utils/constants';
 import { useAppContext } from '../contexts/AppContext';
-import { ArrowRightFromLine, BotMessageSquare, Code, User, FolderOpen, Eye, EyeClosed } from 'lucide-react';
+import { ArrowRightFromLine, BotMessageSquare, Code, User, Eye, EyeClosed } from 'lucide-react';
 import { applyCodeToPage, removeCodeFromPage } from '../services/codePreview';
 import { useDebounce } from '../hooks/useDebounce';
 
@@ -69,11 +69,11 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
         >
           <Code size={24} />
         </button>
-        <button className={`${styles.tabBtn} ${activeTab === TABS.FILELIST ? styles.active : ''}`}
+        {/* <button className={`${styles.tabBtn} ${activeTab === TABS.FILELIST ? styles.active : ''}`}
           onClick={() => switchTab(TABS.FILELIST)}
         >
           <FolderOpen size={24} />
-        </button>
+        </button> */}
         <button className={`${styles.tabBtn} ${activeTab === TABS.USER ? styles.active : ''}`}
           onClick={() => switchTab('user')}
         >

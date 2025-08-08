@@ -75,17 +75,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    chrome.runtime.onMessage.addListener(handleMessage)
+    // Only add listener in extension environment
+    if (typeof chrome !== 'undefined' && chrome.runtime) {
+      chrome.runtime.onMessage.addListener(handleMessage)
+    }
 
     return () => {
       subscription.unsubscribe()
-      chrome.runtime.onMessage.removeListener(handleMessage)
+      if (typeof chrome !== 'undefined' && chrome.runtime) {
+        chrome.runtime.onMessage.removeListener(handleMessage)
+      }
     }
   }, [])
 
   const signInWithProvider = async (provider: string) => {
     dispatch({ type: 'SET_LOADING', payload: true })
     try {
+      // In dev preview mode, mock the auth flow
+      if (typeof chrome === 'undefined' || !chrome.runtime) {
+        dispatch({ type: 'SET_ERROR', payload: 'Auth not available in preview mode' })
+        return
+      }
+      
       const response = await chrome.runtime.sendMessage({
         type: 'INIT_OAUTH',
         provider
