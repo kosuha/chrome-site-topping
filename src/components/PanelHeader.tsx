@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import styles from '../styles/SidePanel.module.css';
 import { TABS } from '../utils/constants';
 import { useAppContext } from '../contexts/AppContext';
-import { ArrowRightFromLine, BotMessageSquare, Code, User, Eye, EyeClosed } from 'lucide-react';
+import { ArrowRightFromLine, BotMessageSquare, Code, User, Eye, EyeClosed, Upload } from 'lucide-react';
 import { applyCodeToPage, removeCodeFromPage } from '../services/codePreview';
 import { useDebounce } from '../hooks/useDebounce';
 
@@ -18,8 +18,14 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
   const debouncedCSS = useDebounce(state.editorCode.css, 500);
   const debouncedJS = useDebounce(state.editorCode.javascript, 2000);
 
-  const switchTab = (tabName: 'code' | 'chat' | 'user' | 'filelist') => {
+  const switchTab = (tabName: 'code' | 'chat' | 'user') => {
     actions.setActiveTab(tabName);
+  };
+
+  const handleDeploy = async () => {
+    // MVP: 배포 기능 구현 예정
+    console.log('Deploy current code:', state.editorCode);
+    // TODO: 서버로 코드 전송
   };
 
   const handlePreviewToggle = async () => {
@@ -47,9 +53,16 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
         <button 
           className={`${styles.tabBtn} ${state.isPreviewMode ? styles.activePreview : ''}`}
           onClick={handlePreviewToggle}
-          title={state.isPreviewMode ? "Hide Preview" : "Show Preview"}
+          title={state.isPreviewMode ? "미리보기 숨기기" : "미리보기 보기"}
         >
           {state.isPreviewMode ? <Eye size={24} /> : <EyeClosed size={24} />}
+        </button>
+        <button 
+          className={styles.tabBtn}
+          onClick={handleDeploy}
+          title="배포"
+        >
+          <Upload size={24} />
         </button>
       </div>
 
