@@ -81,56 +81,125 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function executeScriptInTab(tabId: number, code: string): Promise<any> {
+    console.log('[Background] Executing script in tab:', tabId, 'Code length:', code.length);
+    
+    // Method 1: World MAIN을 사용해서 페이지 메인 컨텍스트에서 실행 (가장 강력)
     try {
-        console.log('[Background] Executing script in tab:', tabId, 'Code:', code);
-        
-        // 동적으로 함수 생성해서 직접 실행
-        const dynamicFunc = new Function(code) as () => any;
-        
         const result = await chrome.scripting.executeScript({
             target: { tabId },
-            func: dynamicFunc
+            world: 'MAIN', // 페이지의 메인 컨텍스트에서 실행 (CSP 우회)
+            func: (jsCode: string) => {
+                console.log('[MAIN World] Executing code:', jsCode.substring(0, 100) + '...');
+                try {
+                    // 직접 eval 실행 (MAIN world에서는 CSP 영향 받지 않음)
+                    return eval(jsCode);
+                } catch (evalError) {
+                    console.error('[MAIN World] Eval failed:', evalError);
+                    // Function constructor 시도
+                    const func = new Function(jsCode);
+                    return func();
+                }
+            },
+            args: [code]
         });
         
-        console.log('[Background] Chrome scripting result:', result);
+        console.log('[Background] MAIN world execution successful:', result);
         return result;
-    } catch (functionError) {
-        console.error('[Background] Function creation failed, trying alternative:', functionError);
+    } catch (mainWorldError) {
+        console.error('[Background] MAIN world execution failed:', mainWorldError);
         
-        // Function 생성이 실패하면 wrapper 함수 사용
+        // Method 2: ISOLATED world에서 DOM 조작으로 우회
         try {
             const result = await chrome.scripting.executeScript({
                 target: { tabId },
+                world: 'ISOLATED', 
                 func: (jsCode: string) => {
-                    console.log('[Injected] Executing code directly:', jsCode);
-                    // 스크립트 태그 생성 방식
-                    const script = document.createElement('script');
-                    script.textContent = jsCode;
-                    script.id = 'site-topping-injected-script';
+                    console.log('[ISOLATED World] Attempting DOM injection');
                     
-                    // 기존 스크립트가 있으면 제거
-                    const existing = document.getElementById('site-topping-injected-script');
-                    if (existing) {
-                        existing.remove();
+                    // 방법 1: iframe의 contentWindow 사용
+                    try {
+                        const iframe = document.createElement('iframe');
+                        iframe.style.display = 'none';
+                        iframe.src = 'about:blank';
+                        document.body.appendChild(iframe);
+                        
+                        iframe.onload = () => {
+                            try {
+                                const iframeWindow = iframe.contentWindow;
+                                if (iframeWindow && (iframeWindow as any).eval) {
+                                    (iframeWindow as any).eval(jsCode);
+                                }
+                            } catch (e) {
+                                console.error('[ISOLATED] iframe eval failed:', e);
+                            }
+                            iframe.remove();
+                        };
+                        
+                        return { success: true, method: 'iframe' };
+                    } catch (iframeError) {
+                        console.error('[ISOLATED] iframe method failed:', iframeError);
                     }
                     
-                    document.head.appendChild(script);
+                    // 방법 2: 이벤트 리스너를 통한 실행
+                    try {
+                        const script = document.createElement('script');
+                        script.id = 'site-topping-injected-' + Date.now();
+                        
+                        // 텍스트 콘텐츠 대신 src를 data URL로 설정
+                        const dataURL = 'data:text/javascript;charset=utf-8,' + encodeURIComponent(`
+                            (function() {
+                                try {
+                                    ${jsCode}
+                                } catch (e) {
+                                    console.error('[Data URL] Execution error:', e);
+                                }
+                            })();
+                        `);
+                        
+                        script.src = dataURL;
+                        document.head.appendChild(script);
+                        
+                        setTimeout(() => script.remove(), 1000);
+                        return { success: true, method: 'data-url' };
+                    } catch (dataUrlError) {
+                        console.error('[ISOLATED] data URL method failed:', dataUrlError);
+                    }
                     
-                    // 실행 후 정리
-                    setTimeout(() => {
-                        script.remove();
-                    }, 100);
+                    // 방법 3: CustomEvent를 통한 실행
+                    try {
+                        const event = new CustomEvent('site-topping-execute', {
+                            detail: { code: jsCode }
+                        });
+                        
+                        // 페이지에 리스너가 없다면 생성
+                        if (!(window as any).__siteTopping_eventListenerAdded) {
+                            window.addEventListener('site-topping-execute', (e: any) => {
+                                try {
+                                    eval(e.detail.code);
+                                } catch (evalErr) {
+                                    console.error('[CustomEvent] Eval failed:', evalErr);
+                                }
+                            });
+                            (window as any).__siteTopping_eventListenerAdded = true;
+                        }
+                        
+                        window.dispatchEvent(event);
+                        return { success: true, method: 'custom-event' };
+                    } catch (eventError) {
+                        console.error('[ISOLATED] custom event method failed:', eventError);
+                    }
                     
-                    return { success: true, method: 'script-tag' };
+                    return { success: false, error: 'All methods failed' };
                 },
                 args: [code]
             });
             
-            console.log('[Background] Alternative method result:', result);
+            console.log('[Background] ISOLATED world execution result:', result);
             return result;
-        } catch (error) {
-            console.error('[Background] All execution methods failed:', error);
-            throw error;
+        } catch (isolatedError) {
+            console.error('[Background] All execution methods failed:', isolatedError);
+            const errorMessage = isolatedError instanceof Error ? isolatedError.message : String(isolatedError);
+            throw new Error(`Script execution failed: ${errorMessage}`);
         }
     }
 }
