@@ -51,7 +51,9 @@ export type AppAction =
   | { type: 'DELETE_THREAD'; payload: string }
   | { type: 'UPDATE_THREAD_TITLE'; payload: { threadId: string; title: string } }
   | { type: 'SET_AI_LOADING'; payload: boolean }
-  | { type: 'RESET_STATE' };
+  | { type: 'RESET_STATE' }
+  | { type: 'LOAD_THREADS_FROM_SERVER'; payload: ChatThread[] }
+  | { type: 'ADD_SERVER_THREAD'; payload: ChatThread };
 
 const initialState: AppState = {
   isOpen: false,
@@ -165,6 +167,16 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, isAiLoading: action.payload };
     case 'RESET_STATE':
       return initialState;
+    case 'LOAD_THREADS_FROM_SERVER':
+      return {
+        ...state,
+        chatThreads: action.payload
+      };
+    case 'ADD_SERVER_THREAD':
+      return {
+        ...state,
+        chatThreads: [action.payload, ...state.chatThreads]
+      };
     default:
       return state;
   }
@@ -190,6 +202,9 @@ interface AppContextType {
     updateThreadTitle: (threadId: string, title: string) => void;
     setAiLoading: (loading: boolean) => void;
     resetState: () => void;
+    // 서버 연동용 액션들
+    loadThreadsFromServer: (threads: ChatThread[]) => void;
+    addServerThread: (thread: ChatThread) => void;
   };
   computed: {
     currentThread: ChatThread | null;
@@ -223,6 +238,9 @@ export function AppProvider({ children }: AppProviderProps) {
     updateThreadTitle: (threadId: string, title: string) => dispatch({ type: 'UPDATE_THREAD_TITLE', payload: { threadId, title } }),
     setAiLoading: (loading: boolean) => dispatch({ type: 'SET_AI_LOADING', payload: loading }),
     resetState: () => dispatch({ type: 'RESET_STATE' }),
+    // 서버 연동용 액션들
+    loadThreadsFromServer: (threads: ChatThread[]) => dispatch({ type: 'LOAD_THREADS_FROM_SERVER', payload: threads }),
+    addServerThread: (thread: ChatThread) => dispatch({ type: 'ADD_SERVER_THREAD', payload: thread }),
   }), [dispatch]);
 
   const computed = useMemo(() => ({

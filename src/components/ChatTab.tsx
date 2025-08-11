@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAppContext, ChatMessage } from '../contexts/AppContext';
 import ThreadManager from './ThreadManager';
+import aiService from '../services/aiService';
 import styles from '../styles/ChatTab.module.css';
 import { ArrowUp, Loader, Paperclip, X, List, CirclePlus } from 'lucide-react';
 
@@ -233,9 +234,37 @@ export default function ChatTab() {
         actions.setCurrentThread(emptyThread.id);
         currentThreadId = emptyThread.id;
       } else {
-        // 빈 스레드가 없으면 새로 생성
-        actions.createNewThread();
-        currentThreadId = state.chatThreads[0]?.id || Date.now().toString();
+        // 빈 스레드가 없으면 서버를 통해 새로 생성
+        try {
+          console.log('🆕 새 스레드 생성 시도');
+          const response = await aiService.createThread();
+          console.log('🆕 스레드 생성 응답:', response);
+          
+          if (response.status === 'success') {
+            const threadId = response.data.threadId || response.data.id;
+            if (!threadId) {
+              throw new Error('서버에서 스레드 ID를 반환하지 않았습니다');
+            }
+            
+            const newThread = {
+              id: threadId,
+              title: response.data.title || '새 대화',
+              messages: [],
+              createdAt: new Date(response.data.created_at || Date.now()),
+              updatedAt: new Date(response.data.updated_at || Date.now()),
+            };
+            
+            console.log('🆕 새 스레드 생성 완료:', newThread.id);
+            actions.addServerThread(newThread);
+            actions.setCurrentThread(newThread.id);
+            currentThreadId = newThread.id;
+          } else {
+            throw new Error('스레드 생성 실패');
+          }
+        } catch (error) {
+          console.error('새 스레드 생성 실패:', error);
+          return; // 스레드 생성 실패 시 메시지 전송 중단
+        }
       }
     }
     
@@ -245,6 +274,12 @@ export default function ChatTab() {
       content: inputValue.trim(),
       timestamp: new Date()
     };
+    
+    if (!currentThreadId) {
+      console.error('❌ 스레드 ID가 없습니다');
+      actions.setAiLoading(false);
+      return;
+    }
     
     actions.addMessageToThread(currentThreadId, userMessage);
     setInputValue('');
@@ -257,20 +292,76 @@ export default function ChatTab() {
     }
     
     try {
-      // TODO: 실제 AI API 호출로 대체
-      setTimeout(() => {
+      // 디버깅을 위한 로그
+      console.log('💬 메시지 전송 시도:', {
+        threadId: currentThreadId,
+        message: userMessage.content,
+        attachedImages: attachedImages.length
+      });
+      
+      // AI API 호출
+      const response = await aiService.sendChatMessage(
+        userMessage.content,
+        currentThreadId,
+        undefined, // metadata
+        undefined, // siteCode - 나중에 현재 도메인 기반으로 설정
+        false, // autoDeploy
+        attachedImages.length > 0 ? attachedImages : undefined
+      );
+
+      console.log('🤖 AI 응답 수신:', response);
+      console.log('📋 응답 상세 정보:');
+      console.log('- response.status:', response.status);
+      console.log('- response.data:', response.data);
+      console.log('- response.data?.ai_message:', response.data?.ai_message);
+      
+      // 서버 응답 구조 처리: { status, data: { ai_message, user_message }, message }
+      if (response.status === 'success' && response.data?.ai_message) {
+        const assistantMsg = response.data.ai_message;
+        console.log('🔍 AI 메시지 상세:');
+        console.log('- assistantMsg:', assistantMsg);
+        console.log('- assistantMsg.message:', assistantMsg.message);
+        console.log('- assistantMsg.message 타입:', typeof assistantMsg.message);
+        console.log('- assistantMsg.message 길이:', assistantMsg.message?.length);
+        
         const aiMessage: ChatMessage = {
-          id: (Date.now() + 1).toString(),
+          id: assistantMsg.id || (Date.now() + 1).toString(),
           type: 'assistant',
-          content: '안녕하세요! AI 채팅 기능이 준비 중입니다. 곧 코드 생성 및 수정 기능을 제공할 예정입니다.\n\n```javascript\nconsole.log("Hello from AI!");\n```',
-          timestamp: new Date()
+          content: assistantMsg.message || '응답을 받지 못했습니다',
+          timestamp: new Date(assistantMsg.created_at || Date.now())
         };
-        actions.addMessageToThread(currentThreadId, aiMessage);
-        actions.setAiLoading(false);
-      }, 2000);
+        
+        console.log('📝 생성된 ChatMessage:');
+        console.log('- aiMessage.content:', aiMessage.content);
+        console.log('- aiMessage.content 길이:', aiMessage.content.length);
+        
+        actions.addMessageToThread(currentThreadId!, aiMessage);
+        
+        // 스크립트 업데이트가 있는 경우 메타데이터 처리
+        if (assistantMsg.metadata?.script_updates) {
+          // 필요시 코드 에디터에 자동 적용하는 로직 추가
+          console.log('스크립트 업데이트:', assistantMsg.metadata.script_updates);
+        }
+      } else {
+        console.error('❌ AI 응답 데이터 구조 오류:', response);
+        throw new Error('AI 응답 데이터가 올바르지 않습니다');
+      }
+      
+      actions.setAiLoading(false);
     } catch (error) {
       console.error('AI 응답 오류:', error);
-      actions.setError('AI 응답을 가져오는 중 오류가 발생했습니다.');
+      
+      // 에러 메시지를 사용자에게 표시
+      const errorMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        type: 'assistant',
+        content: `죄송합니다. AI 응답을 생성하는 중 오류가 발생했습니다: ${error instanceof Error ? error.message : '알 수 없는 오류'}`,
+        timestamp: new Date()
+      };
+      
+      if (currentThreadId) {
+        actions.addMessageToThread(currentThreadId, errorMessage);
+      }
       actions.setAiLoading(false);
     }
   };
@@ -331,7 +422,35 @@ export default function ChatTab() {
           </button>
           <button
             className={styles.newChatButton}
-            onClick={() => actions.createNewThread()}
+            onClick={async () => {
+              try {
+                const response = await aiService.createThread();
+                if (response.status === 'success') {
+                  const threadId = response.data.threadId || response.data.id;
+                  if (!threadId) {
+                    throw new Error('서버에서 스레드 ID를 반환하지 않았습니다');
+                  }
+                  
+                  const newThread = {
+                    id: threadId,
+                    title: response.data.title || '새 대화',
+                    messages: [],
+                    createdAt: new Date(response.data.created_at || Date.now()),
+                    updatedAt: new Date(response.data.updated_at || Date.now()),
+                  };
+                  
+                  actions.addServerThread(newThread);
+                  actions.setCurrentThread(newThread.id);
+                } else {
+                  // 에러 시 로컬에서만 생성
+                  actions.createNewThread();
+                }
+              } catch (error) {
+                console.error('새 스레드 생성 실패:', error);
+                // 에러 시 로컬에서만 생성
+                actions.createNewThread();
+              }
+            }}
             title="새 채팅"
           >
             <CirclePlus size={16} />
