@@ -9,6 +9,20 @@ export interface ChatMessage {
     language: string;
     code: string;
   }[];
+  code?: {
+    javascript?: string;
+    css?: string;
+  };
+  codeAction?: 'replace' | 'append' | 'insert' | 'modify';
+  // 새로운 통합 diff 형식
+  changes?: {
+    javascript?: {
+      diff: string;
+    };
+    css?: {
+      diff: string;
+    };
+  };
 }
 
 export interface ChatThread {
@@ -30,23 +44,60 @@ export interface AppState {
     javascript: string;
     css: string;
   };
+  // 코드 변경 히스토리 스택 (브라우저 뒤로가기 스타일)
+  codeHistoryStack: Array<{
+    javascript: string;
+    css: string;
+    messageId?: string;
+    timestamp: Date;
+    description?: string;
+    changeSummary?: {
+      javascript?: { added: number; removed: number };
+      css?: { added: number; removed: number };
+    };
+    isSuccessful?: boolean;
+  }>;
+  currentHistoryIndex: number;
+  lastAppliedChange: {
+    messageId: string;
+    timestamp: Date;
+  } | null;
   chatThreads: ChatThread[];
   currentThreadId: string | null;
   isAiLoading: boolean;
 }
 
-export type AppAction = 
+type AppAction = 
   | { type: 'TOGGLE_PANEL' }
   | { type: 'OPEN_PANEL' }
   | { type: 'CLOSE_PANEL' }
+  | { type: 'SET_OPEN'; payload: boolean }
   | { type: 'SET_ACTIVE_TAB'; payload: 'code' | 'chat' | 'user' }
   | { type: 'SET_WIDTH'; payload: number }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string | null }
+  | { type: 'SET_PREVIEW_MODE'; payload: boolean }
   | { type: 'TOGGLE_PREVIEW_MODE' }
   | { type: 'SET_EDITOR_CODE'; payload: { language: 'javascript' | 'css'; code: string } }
+  | { type: 'PUSH_CODE_HISTORY'; payload: { 
+      javascript: string; 
+      css: string; 
+      messageId?: string; 
+      description?: string;
+      changeSummary?: {
+        javascript?: { added: number; removed: number };
+        css?: { added: number; removed: number };
+      };
+      isSuccessful?: boolean;
+    } }
+  | { type: 'GO_BACK_HISTORY' }
+  | { type: 'GO_FORWARD_HISTORY' }
+  | { type: 'SET_LAST_APPLIED_CHANGE'; payload: { messageId: string; timestamp: Date } }
+  | { type: 'CLEAR_CODE_HISTORY' }
+  | { type: 'CREATE_THREAD' }
   | { type: 'CREATE_NEW_THREAD'; payload?: string }
-  | { type: 'SET_CURRENT_THREAD'; payload: string }
+  | { type: 'SET_CURRENT_THREAD'; payload: string | null }
+  | { type: 'ADD_MESSAGE'; payload: { threadId: string; message: ChatMessage } }
   | { type: 'ADD_MESSAGE_TO_THREAD'; payload: { threadId: string; message: ChatMessage } }
   | { type: 'DELETE_THREAD'; payload: string }
   | { type: 'UPDATE_THREAD_TITLE'; payload: { threadId: string; title: string } }
@@ -57,7 +108,7 @@ export type AppAction =
 
 const initialState: AppState = {
   isOpen: false,
-  activeTab: 'code',
+  activeTab: 'chat',
   width: 400,
   isLoading: false,
   error: null,
@@ -66,6 +117,14 @@ const initialState: AppState = {
     javascript: '',
     css: ''
   },
+  codeHistoryStack: [{
+    javascript: '',
+    css: '',
+    timestamp: new Date(),
+    description: '초기 상태'
+  }],
+  currentHistoryIndex: 0,
+  lastAppliedChange: null,
   chatThreads: [],
   currentThreadId: null,
   isAiLoading: false,
@@ -96,6 +155,79 @@ function appReducer(state: AppState, action: AppAction): AppState {
           ...state.editorCode,
           [action.payload.language]: action.payload.code
         }
+      };
+    case 'PUSH_CODE_HISTORY':
+      const newHistoryItem = {
+        javascript: action.payload.javascript,
+        css: action.payload.css,
+        messageId: action.payload.messageId,
+        timestamp: new Date(),
+        description: action.payload.description || 'AI 코드 적용',
+        changeSummary: action.payload.changeSummary,
+        isSuccessful: action.payload.isSuccessful ?? true
+      };
+      
+      // 현재 인덱스 이후의 히스토리 제거 (브라우저 뒤로가기 스타일)
+      const newStack = state.codeHistoryStack.slice(0, state.currentHistoryIndex + 1);
+      newStack.push(newHistoryItem);
+      
+      return {
+        ...state,
+        codeHistoryStack: newStack,
+        currentHistoryIndex: newStack.length - 1
+      };
+    case 'GO_BACK_HISTORY':
+      if (state.currentHistoryIndex > 0) {
+        const newIndex = state.currentHistoryIndex - 1;
+        const targetHistory = state.codeHistoryStack[newIndex];
+        return {
+          ...state,
+          editorCode: {
+            javascript: targetHistory.javascript,
+            css: targetHistory.css
+          },
+          currentHistoryIndex: newIndex,
+          lastAppliedChange: targetHistory.messageId ? {
+            messageId: targetHistory.messageId,
+            timestamp: targetHistory.timestamp
+          } : null
+        };
+      }
+      return state;
+    case 'GO_FORWARD_HISTORY':
+      if (state.currentHistoryIndex < state.codeHistoryStack.length - 1) {
+        const newIndex = state.currentHistoryIndex + 1;
+        const targetHistory = state.codeHistoryStack[newIndex];
+        return {
+          ...state,
+          editorCode: {
+            javascript: targetHistory.javascript,
+            css: targetHistory.css
+          },
+          currentHistoryIndex: newIndex,
+          lastAppliedChange: targetHistory.messageId ? {
+            messageId: targetHistory.messageId,
+            timestamp: targetHistory.timestamp
+          } : null
+        };
+      }
+      return state;
+    case 'SET_LAST_APPLIED_CHANGE':
+      return {
+        ...state,
+        lastAppliedChange: action.payload
+      };
+    case 'CLEAR_CODE_HISTORY':
+      return {
+        ...state,
+        codeHistoryStack: [{
+          javascript: state.editorCode.javascript,
+          css: state.editorCode.css,
+          timestamp: new Date(),
+          description: '히스토리 초기화'
+        }],
+        currentHistoryIndex: 0,
+        lastAppliedChange: null
       };
     case 'CREATE_NEW_THREAD':
       // 빈 스레드가 있으면 그것을 사용
@@ -195,6 +327,22 @@ interface AppContextType {
     setError: (error: string | null) => void;
     togglePreviewMode: () => void;
     setEditorCode: (language: 'javascript' | 'css', code: string) => void;
+    // 코드 변경 히스토리 관련 액션들 (브라우저 스타일)
+    pushCodeHistory: (history: { 
+      javascript: string; 
+      css: string; 
+      messageId?: string; 
+      description?: string;
+      changeSummary?: {
+        javascript?: { added: number; removed: number };
+        css?: { added: number; removed: number };
+      };
+      isSuccessful?: boolean;
+    }) => void;
+    goBackHistory: () => void;
+    goForwardHistory: () => void;
+    setLastAppliedChange: (messageId: string, timestamp: Date) => void;
+    clearCodeHistory: () => void;
     createNewThread: (title?: string) => void;
     setCurrentThread: (threadId: string) => void;
     addMessageToThread: (threadId: string, message: ChatMessage) => void;
@@ -231,6 +379,22 @@ export function AppProvider({ children }: AppProviderProps) {
     setError: (error: string | null) => dispatch({ type: 'SET_ERROR', payload: error }),
     togglePreviewMode: () => dispatch({ type: 'TOGGLE_PREVIEW_MODE' }),
     setEditorCode: (language: 'javascript' | 'css', code: string) => dispatch({ type: 'SET_EDITOR_CODE', payload: { language, code } }),
+    // 코드 변경 히스토리 관련 액션들 (브라우저 스타일)
+    pushCodeHistory: (history: { 
+      javascript: string; 
+      css: string; 
+      messageId?: string; 
+      description?: string;
+      changeSummary?: {
+        javascript?: { added: number; removed: number };
+        css?: { added: number; removed: number };
+      };
+      isSuccessful?: boolean;
+    }) => dispatch({ type: 'PUSH_CODE_HISTORY', payload: history }),
+    goBackHistory: () => dispatch({ type: 'GO_BACK_HISTORY' }),
+    goForwardHistory: () => dispatch({ type: 'GO_FORWARD_HISTORY' }),
+    setLastAppliedChange: (messageId: string, timestamp: Date) => dispatch({ type: 'SET_LAST_APPLIED_CHANGE', payload: { messageId, timestamp } }),
+    clearCodeHistory: () => dispatch({ type: 'CLEAR_CODE_HISTORY' }),
     createNewThread: (title?: string) => dispatch({ type: 'CREATE_NEW_THREAD', payload: title }),
     setCurrentThread: (threadId: string) => dispatch({ type: 'SET_CURRENT_THREAD', payload: threadId }),
     addMessageToThread: (threadId: string, message: ChatMessage) => dispatch({ type: 'ADD_MESSAGE_TO_THREAD', payload: { threadId, message } }),

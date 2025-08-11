@@ -2,12 +2,115 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAppContext, ChatMessage } from '../contexts/AppContext';
 import ThreadManager from './ThreadManager';
 import aiService from '../services/aiService';
+import domExtractor from '../services/domExtractor';
+import codeAnalyzer from '../services/codeAnalyzer';
 import styles from '../styles/ChatTab.module.css';
-import { ArrowUp, Loader, Paperclip, X, List, CirclePlus } from 'lucide-react';
+import { ArrowUp, Loader, Paperclip, X, List, CirclePlus, Check, ChevronDown, ChevronUp, ArrowBigLeft, ArrowBigRight } from 'lucide-react';
+import { calculateChangeSummary } from '../utils/changeSummary';
 
 interface CodeBlock {
   language: string;
   code: string;
+}
+
+// 간단한 코드 변경사항 블럭 컴포넌트
+function CodeChangeBlock({ 
+  language, 
+  code, 
+  changeSummary, 
+  isSuccessful = true
+}: { 
+  language: string;
+  code: string;
+  changeSummary?: string;
+  isSuccessful?: boolean;
+}) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  // diff 파싱 함수
+  const parseDiffLines = (diffText: string) => {
+    const lines = diffText.split('\n');
+    return lines.map((line, index) => {
+      if (line.startsWith('@@')) {
+        return { type: 'header', content: line, key: `header-${index}` };
+      } else if (line.startsWith('+')) {
+        return { type: 'addition', content: line, key: `add-${index}` };
+      } else if (line.startsWith('-')) {
+        return { type: 'deletion', content: line, key: `del-${index}` };
+      } else if (line.startsWith(' ') || line === '') {
+        return { type: 'context', content: line, key: `ctx-${index}` };
+      } else {
+        return { type: 'normal', content: line, key: `norm-${index}` };
+      }
+    }).filter(line => line.content !== ''); // 빈 라인 제거
+  };
+
+  const diffLines = parseDiffLines(code);
+
+  return (
+    <div className={styles.codeChangeBlock}>
+      <div 
+        className={styles.codeChangeHeader}
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className={styles.codeChangeIcon}>
+          {isSuccessful ? (
+            <Check size={12} strokeWidth={4} className={styles.successIcon} />
+          ) : (
+            <X size={12} strokeWidth={4} className={styles.errorIcon} />
+          )}
+        </div>
+        <div className={styles.codeChangeContent}>
+          <span className={styles.codeChangeTitle}>
+            {language}
+          </span>
+          <span className={styles.codeChangeSummary}>
+            <span className={styles.addition}>+{changeSummary?.split('−')[0]?.replace('+', '') || '0'}</span>
+            {' '}
+            <span className={styles.deletion}>−{changeSummary?.split('−')[1] || '0'}</span>
+          </span>
+        </div>
+        <div className={styles.codeChangeExpand}>
+          {isExpanded ? (
+            <ChevronUp size={12} />
+          ) : (
+            <ChevronDown size={12} />
+          )}
+        </div>
+      </div>
+      
+      {isExpanded && (
+        <div className={styles.codeChangeDetails}>
+          <div className={styles.codeChangeDetailsContent}>
+            <div className={styles.diffContent}>
+              {diffLines.map((line) => (
+                <div key={line.key} className={`${styles.diffLine} ${styles[`diffLine${line.type.charAt(0).toUpperCase() + line.type.slice(1)}`]}`}>
+                  {line.content}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// diff에서 변경사항 요약 계산
+function calculateDiffSummary(diff: string): { added: number; removed: number } {
+  const lines = diff.split('\n');
+  let added = 0;
+  let removed = 0;
+  
+  for (const line of lines) {
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      added++;
+    } else if (line.startsWith('-') && !line.startsWith('---')) {
+      removed++;
+    }
+  }
+  
+  return { added, removed };
 }
 
 function parseCodeBlocks(content: string): { text: string; codeBlocks: CodeBlock[] } {
@@ -26,30 +129,31 @@ function parseCodeBlocks(content: string): { text: string; codeBlocks: CodeBlock
 }
 
 function MessageComponent({ message }: { message: ChatMessage }) {
-  const { actions } = useAppContext();
-  const [copiedStates, setCopiedStates] = useState<Record<number, boolean>>({});
+  const { state } = useAppContext();
   
-  const { text, codeBlocks } = parseCodeBlocks(message.content);
+  const { text } = parseCodeBlocks(message.content);
   
-  const handleCopyCode = async (code: string, index: number) => {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopiedStates(prev => ({ ...prev, [index]: true }));
-      setTimeout(() => {
-        setCopiedStates(prev => ({ ...prev, [index]: false }));
-      }, 2000);
-    } catch (err) {
-      console.error('클립보드 복사 실패:', err);
+  // 현재 히스토리에서 이 메시지가 적용된 상태인지 확인
+  const isMessageApplied = () => {
+    if (!message.id) return false;
+    
+    // 히스토리 스택에서 이 메시지의 인덱스를 찾기
+    const messageHistoryIndex = state.codeHistoryStack.findIndex(item => item.messageId === message.id);
+    
+    // 메시지가 히스토리에 없거나, 현재 히스토리 인덱스보다 뒤에 있으면 적용되지 않음
+    if (messageHistoryIndex === -1 || messageHistoryIndex > state.currentHistoryIndex) {
+      return false;
     }
+    
+    // 현재 히스토리 인덱스보다 앞이거나 같으면 적용됨
+    return true;
   };
   
-  const handleApplyCode = (language: string, code: string) => {
-    if (language === 'javascript' || language === 'js') {
-      actions.setEditorCode('javascript', code);
-    } else if (language === 'css') {
-      actions.setEditorCode('css', code);
-    }
-    actions.setActiveTab('code');
+  // 메시지 변경사항이 성공적으로 적용되었는지 확인
+  const isChangeSuccessful = () => {
+    if (!message.id) return true; // 기본값은 성공
+    const historyItem = state.codeHistoryStack.find(item => item.messageId === message.id);
+    return historyItem?.isSuccessful ?? true;
   };
   
   const formatTime = (date: Date) => {
@@ -65,34 +169,36 @@ function MessageComponent({ message }: { message: ChatMessage }) {
         <div className={`${styles.messageBubble} ${styles[message.type]}`}>
           {text}
         </div>
-        {codeBlocks.length > 0 && (
-          <div>
-            {codeBlocks.map((block, index) => (
-              <div key={index} className={styles.codeBlock}>
-                <div className={styles.codeHeader}>
-                  <span className={styles.codeLanguage}>{block.language}</span>
-                  <div>
-                    <button 
-                      className={`${styles.copyButton} ${copiedStates[index] ? styles.copied : ''}`}
-                      onClick={() => handleCopyCode(block.code, index)}
-                    >
-                      {copiedStates[index] ? '✓ 복사됨' : '복사'}
-                    </button>
-                    {(block.language === 'javascript' || block.language === 'js' || block.language === 'css') && (
-                      <button 
-                        className={styles.applyButton}
-                        onClick={() => handleApplyCode(block.language, block.code)}
-                      >
-                        에디터에 적용
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <pre>{block.code}</pre>
-              </div>
-            ))}
+        
+        {/* 새로운 통합 diff 형식 처리 */}
+        {message.changes && (
+          <div className={styles.aiCodeSection}>
+            {message.changes.javascript && (
+              <CodeChangeBlock
+                language="JavaScript"
+                code={message.changes.javascript.diff}
+                changeSummary={(() => {
+                  const summary = calculateDiffSummary(message.changes.javascript!.diff);
+                  return `+${summary.added} −${summary.removed}`;
+                })()}
+                isSuccessful={isMessageApplied() && isChangeSuccessful()}
+              />
+            )}
+            
+            {message.changes.css && (
+              <CodeChangeBlock
+                language="CSS"
+                code={message.changes.css.diff}
+                changeSummary={(() => {
+                  const summary = calculateDiffSummary(message.changes.css!.diff);
+                  return `+${summary.added} −${summary.removed}`;
+                })()}
+                isSuccessful={isMessageApplied() && isChangeSuccessful()}
+              />
+            )}
           </div>
         )}
+        
         <div className={`${styles.messageTime} ${styles[message.type]}`}>
           {formatTime(message.timestamp)}
         </div>
@@ -137,6 +243,215 @@ export default function ChatTab() {
     scrollToBottom();
   }, [computed.currentMessages, state.isAiLoading]);
 
+  // 더미 데이터 초기화 (개발용)
+  useEffect(() => {
+    const initDummyData = () => {
+      // 이미 메시지가 있으면 더미 데이터 추가하지 않음
+      if (computed.currentMessages.length > 0) return;
+      
+      // 현재 스레드가 없으면 새로 생성
+      if (!state.currentThreadId) {
+        actions.createNewThread();
+        return; // 다음 렌더링 사이클에서 더미 데이터 추가
+      }
+      
+      const dummyMessages = [
+        {
+          id: 'dummy-1',
+          type: 'user' as const,
+          content: '버튼 색상을 파란색으로 바꿔줘',
+          timestamp: new Date(Date.now() - 5 * 60 * 1000) // 5분 전
+        },
+        {
+          id: 'dummy-2',
+          type: 'assistant' as const,
+          content: '버튼 색상을 파란색으로 변경해드렸습니다.',
+          timestamp: new Date(Date.now() - 4 * 60 * 1000), // 4분 전
+          changes: {
+            css: {
+              diff: `@@ -1,5 +1,5 @@
+ .button {
+   padding: 10px 20px;
+   border: none;
+   border-radius: 5px;
+-  background-color: #gray;
++  background-color: #3b82f6;
+   color: white;
+   cursor: pointer;
+ }`
+            }
+          }
+        },
+        {
+          id: 'dummy-3',
+          type: 'user' as const,
+          content: '클릭 이벤트도 추가해줘',
+          timestamp: new Date(Date.now() - 3 * 60 * 1000) // 3분 전
+        },
+        {
+          id: 'dummy-4',
+          type: 'assistant' as const,
+          content: '버튼에 클릭 이벤트를 추가했습니다.',
+          timestamp: new Date(Date.now() - 2 * 60 * 1000), // 2분 전
+          changes: {
+            javascript: {
+              diff: `@@ -1,3 +1,8 @@
+ document.addEventListener('DOMContentLoaded', function() {
++  const button = document.querySelector('.button');
++  button.addEventListener('click', function() {
++    alert('버튼이 클릭되었습니다!');
++  });
++  
+   console.log('페이지 로드 완료');
+ });`
+            }
+          }
+        },
+        {
+          id: 'dummy-5',
+          type: 'user' as const,
+          content: '애니메이션 효과도 넣어줘',
+          timestamp: new Date(Date.now() - 1 * 60 * 1000) // 1분 전
+        },
+        {
+          id: 'dummy-6',
+          type: 'assistant' as const,
+          content: '버튼에 호버 애니메이션과 클릭 효과를 추가했습니다.',
+          timestamp: new Date(Date.now() - 30 * 1000), // 30초 전
+          changes: {
+            css: {
+              diff: `@@ -1,8 +1,15 @@
+ .button {
+   padding: 10px 20px;
+   border: none;
+   border-radius: 5px;
+   background-color: #3b82f6;
+   color: white;
+   cursor: pointer;
++  transition: all 0.3s ease;
++}
++
++.button:hover {
++  background-color: #2563eb;
++  transform: translateY(-2px);
++  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+ }`
+            },
+            javascript: {
+              diff: `@@ -2,6 +2,12 @@
+ document.addEventListener('DOMContentLoaded', function() {
+   const button = document.querySelector('.button');
+   button.addEventListener('click', function() {
++    // 클릭 애니메이션
++    this.style.transform = 'scale(0.95)';
++    setTimeout(() => {
++      this.style.transform = '';
++    }, 150);
++    
+     alert('버튼이 클릭되었습니다!');
+   });
+   `
+            }
+          }
+        }
+      ];
+      
+      // 더미 메시지들을 추가하고 히스토리도 함께 생성
+      dummyMessages.forEach(message => {
+        actions.addMessageToThread(state.currentThreadId!, message);
+        
+        // AI 응답 메시지인 경우 히스토리 스택에도 추가
+        if (message.type === 'assistant' && message.changes) {
+          let newCode = {
+            javascript: state.editorCode.javascript,
+            css: state.editorCode.css
+          };
+          
+          // CSS 변경사항 적용
+          if (message.changes.css) {
+            if (message.id === 'dummy-2') {
+              newCode.css = `.button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  background-color: #3b82f6;
+  color: white;
+  cursor: pointer;
+}`;
+            } else if (message.id === 'dummy-6') {
+              newCode.css = `.button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  background-color: #3b82f6;
+  color: white;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.button:hover {
+  background-color: #2563eb;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}`;
+            }
+          }
+          
+          // JavaScript 변경사항 적용
+          if (message.changes.javascript) {
+            if (message.id === 'dummy-4') {
+              newCode.javascript = `document.addEventListener('DOMContentLoaded', function() {
+  const button = document.querySelector('.button');
+  button.addEventListener('click', function() {
+    alert('버튼이 클릭되었습니다!');
+  });
+  
+  console.log('페이지 로드 완료');
+});`;
+            } else if (message.id === 'dummy-6') {
+              newCode.javascript = `document.addEventListener('DOMContentLoaded', function() {
+  const button = document.querySelector('.button');
+  button.addEventListener('click', function() {
+    // 클릭 애니메이션
+    this.style.transform = 'scale(0.95)';
+    setTimeout(() => {
+      this.style.transform = '';
+    }, 150);
+    
+    alert('버튼이 클릭되었습니다!');
+  });
+  
+  console.log('페이지 로드 완료');
+});`;
+            }
+          }
+          
+          // 코드 변경사항을 에디터와 히스토리에 적용
+          actions.setEditorCode('javascript', newCode.javascript);
+          actions.setEditorCode('css', newCode.css);
+          
+          // 히스토리 스택에 추가
+          const summary = {
+            javascript: message.changes.javascript ? { added: 5, removed: 0 } : undefined,
+            css: message.changes.css ? { added: 3, removed: 1 } : undefined
+          };
+          
+          actions.pushCodeHistory({
+            javascript: newCode.javascript,
+            css: newCode.css,
+            messageId: message.id,
+            description: message.content,
+            changeSummary: summary,
+            isSuccessful: true
+          });
+        }
+      });
+    };
+    
+    // 컴포넌트 마운트 후 약간의 지연을 두고 더미 데이터 추가
+    const timer = setTimeout(initDummyData, 100);
+    return () => clearTimeout(timer);
+  }, [state.currentThreadId, computed.currentMessages.length, actions]);
   
   // Handle image file selection
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -292,19 +607,39 @@ export default function ChatTab() {
     }
     
     try {
+      // 현재 페이지 컨텍스트 생성 (DOM 구조 + 사용자 코드)
+      const pageContext = domExtractor.createFullContext(
+        state.editorCode.javascript,
+        state.editorCode.css
+      );
+      
       // 디버깅을 위한 로그
       console.log('💬 메시지 전송 시도:', {
         threadId: currentThreadId,
         message: userMessage.content,
-        attachedImages: attachedImages.length
+        hasJavaScript: !!state.editorCode.javascript.trim(),
+        hasCss: !!state.editorCode.css.trim(),
+        attachedImages: attachedImages.length,
+        contextLength: pageContext.length
       });
+      
+      // 현재 사이트 코드 가져오기
+      const siteCode = await aiService.getCurrentSiteCode();
       
       // AI API 호출
       const response = await aiService.sendChatMessage(
         userMessage.content,
         currentThreadId,
-        undefined, // metadata
-        undefined, // siteCode - 나중에 현재 도메인 기반으로 설정
+        {
+          pageContext: pageContext,
+          userCode: {
+            javascript: state.editorCode.javascript,
+            css: state.editorCode.css
+          },
+          pageUrl: window.location.href,
+          domInfo: domExtractor.extractPageDOM()
+        }, // metadata
+        siteCode || undefined, // siteCode
         false, // autoDeploy
         attachedImages.length > 0 ? attachedImages : undefined
       );
@@ -323,19 +658,161 @@ export default function ChatTab() {
         console.log('- assistantMsg.message:', assistantMsg.message);
         console.log('- assistantMsg.message 타입:', typeof assistantMsg.message);
         console.log('- assistantMsg.message 길이:', assistantMsg.message?.length);
+        console.log('- assistantMsg.code:', assistantMsg.code);
+        console.log('- assistantMsg.codeAction:', assistantMsg.codeAction);
+        console.log('- assistantMsg.metadata:', assistantMsg.metadata);
+        
+        // 새로운 통합 changes 형식 처리
+        let extractedChanges = null;
+        let extractedMessage = assistantMsg.message;
+        
+        console.log('🔍 AI 메시지 원본:', extractedMessage);
+        
+        // 1. 메시지에서 JSON 형식 파싱 (우선순위)
+        if (extractedMessage) {
+          try {
+            // 마크다운 코드 블록에서 JSON 추출
+            const codeBlockMatch = extractedMessage.match(/```json\s*\n([\s\S]*?)\n```/);
+            if (codeBlockMatch) {
+              const jsonContent = codeBlockMatch[1];
+              const parsedResponse = JSON.parse(jsonContent);
+              if (parsedResponse.changes) {
+                extractedChanges = parsedResponse.changes;
+                extractedMessage = parsedResponse.message || extractedMessage;
+                console.log('📦 마크다운 코드블록에서 changes 추출:', extractedChanges);
+              }
+            }
+            // 전체 메시지가 JSON인지 확인
+            else if (extractedMessage.trim().startsWith('{') && extractedMessage.trim().endsWith('}')) {
+              const parsedResponse = JSON.parse(extractedMessage);
+              if (parsedResponse.changes) {
+                extractedChanges = parsedResponse.changes;
+                extractedMessage = parsedResponse.message || extractedMessage;
+                console.log('📦 전체 JSON에서 changes 추출:', extractedChanges);
+              }
+            } else {
+              // JSON 블록 찾기
+              const jsonMatch = extractedMessage.match(/\{[\s\S]*"changes"[\s\S]*\}/);
+              if (jsonMatch) {
+                const parsedResponse = JSON.parse(jsonMatch[0]);
+                if (parsedResponse.changes) {
+                  extractedChanges = parsedResponse.changes;
+                  extractedMessage = parsedResponse.message || extractedMessage;
+                  console.log('📦 메시지에서 changes 추출:', extractedChanges);
+                }
+              }
+            }
+          } catch (error) {
+            console.warn('JSON 파싱 실패:', error);
+            console.log('파싱 실패한 메시지:', extractedMessage);
+          }
+        }
+        
+        // 2. 직접 changes 필드 확인 (백업)
+        if (!extractedChanges && assistantMsg.changes) {
+          extractedChanges = assistantMsg.changes;
+          console.log('📦 직접 changes 필드 발견:', extractedChanges);
+        }
+        
+        // 3. 메타데이터에서 changes 추출 (백업)
+        if (!extractedChanges && assistantMsg.metadata) {
+          try {
+            const metadata = typeof assistantMsg.metadata === 'string' 
+              ? JSON.parse(assistantMsg.metadata) 
+              : assistantMsg.metadata;
+            
+            if (metadata.changes) {
+              extractedChanges = metadata.changes;
+              console.log('📦 메타데이터에서 changes 추출:', extractedChanges);
+            }
+          } catch (error) {
+            console.warn('메타데이터 파싱 실패:', error);
+          }
+        }
         
         const aiMessage: ChatMessage = {
           id: assistantMsg.id || (Date.now() + 1).toString(),
           type: 'assistant',
-          content: assistantMsg.message || '응답을 받지 못했습니다',
-          timestamp: new Date(assistantMsg.created_at || Date.now())
+          content: extractedMessage || '응답을 받지 못했습니다',
+          timestamp: new Date(assistantMsg.created_at || Date.now()),
+          changes: extractedChanges // 새로운 changes 필드
         };
         
         console.log('📝 생성된 ChatMessage:');
         console.log('- aiMessage.content:', aiMessage.content);
         console.log('- aiMessage.content 길이:', aiMessage.content.length);
+        console.log('- aiMessage.changes:', aiMessage.changes);
+        
+        // 디버깅: changes가 있는지 확인
+        if (aiMessage.changes) {
+          console.log('🎯 changes가 포함된 메시지입니다!');
+          console.log('- JavaScript diff 있음:', !!aiMessage.changes.javascript?.diff);
+          console.log('- CSS diff 있음:', !!aiMessage.changes.css?.diff);
+          if (aiMessage.changes.javascript?.diff) {
+            console.log('- JavaScript diff:', aiMessage.changes.javascript.diff);
+          }
+          if (aiMessage.changes.css?.diff) {
+            console.log('- CSS diff:', aiMessage.changes.css.diff);
+          }
+        } else {
+          console.log('⚠️ 코드가 없는 메시지입니다');
+        }
         
         actions.addMessageToThread(currentThreadId!, aiMessage);
+        
+        // AI가 코드 변경사항을 제안한 경우 자동으로 적용
+        if (aiMessage.changes) {
+          console.log('🚀 AI 코드 변경사항 자동 적용 시작');
+          
+          // 현재 에디터 코드 백업
+          const currentCodeObj = {
+            javascript: state.editorCode.javascript,
+            css: state.editorCode.css
+          };
+          
+          // setTimeout으로 잠시 후에 적용 (메시지가 UI에 표시된 후)
+          setTimeout(() => {
+            try {
+              const mergedCode = codeAnalyzer.intelligentMerge(currentCodeObj, { changes: aiMessage.changes });
+              
+              // 변경사항 요약 계산
+              let changeSummary: any = {};
+              if (aiMessage.changes?.javascript) {
+                changeSummary.javascript = calculateChangeSummary(
+                  currentCodeObj.javascript,
+                  mergedCode.javascript || ''
+                );
+              }
+              if (aiMessage.changes?.css) {
+                changeSummary.css = calculateChangeSummary(
+                  currentCodeObj.css,
+                  mergedCode.css || ''
+                );
+              }
+              
+              // 변경 후 코드를 히스토리에 저장 (앞으로가기 용)
+              actions.pushCodeHistory({
+                javascript: mergedCode.javascript || '',
+                css: mergedCode.css || '',
+                messageId: aiMessage.id,
+                description: 'AI 자동 적용 완료',
+                changeSummary,
+                isSuccessful: true
+              });
+              
+              // 에디터에 적용
+              actions.setEditorCode('javascript', mergedCode.javascript || '');
+              actions.setEditorCode('css', mergedCode.css || '');
+              
+              // 변경사항을 마지막 적용 변경으로 저장
+              actions.setLastAppliedChange(aiMessage.id, new Date());
+              
+              console.log('✅ AI 코드 변경사항 자동 적용 완료');
+            } catch (error) {
+              console.error('❌ 자동 적용 실패:', error);
+            }
+          }, 100);
+        }
         
         // 스크립트 업데이트가 있는 경우 메타데이터 처리
         if (assistantMsg.metadata?.script_updates) {
@@ -413,6 +890,26 @@ export default function ChatTab() {
           AI 채팅
         </h3>
         <div className={styles.headerActions}>
+          {/* 코드 히스토리 네비게이션 */}
+          <div className={styles.historyControls}>
+            <button
+              className={`${styles.historyButton} ${state.currentHistoryIndex <= 0 ? styles.disabled : ''}`}
+              onClick={() => actions.goBackHistory()}
+              disabled={state.currentHistoryIndex <= 0}
+              title="코드 변경 이전으로"
+            >
+              <ArrowBigLeft size={14} />
+            </button>
+            <button
+              className={`${styles.historyButton} ${state.currentHistoryIndex >= state.codeHistoryStack.length - 1 ? styles.disabled : ''}`}
+              onClick={() => actions.goForwardHistory()}
+              disabled={state.currentHistoryIndex >= state.codeHistoryStack.length - 1}
+              title="코드 변경 이후로"
+            >
+              <ArrowBigRight size={14} />
+            </button>
+          </div>
+          
           <button
             className={styles.threadButton}
             onClick={() => setShowThreads(true)}

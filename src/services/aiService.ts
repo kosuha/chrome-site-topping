@@ -27,18 +27,33 @@ export interface SendChatMessageResponse {
       ai_model?: string;
     };
     ai_message: {
-      id: string;
-      thread_id: string;
-      user_id: string;
-      message: string;
-      message_type: 'assistant';
-      created_at: string;
-      metadata?: Record<string, any>;
-      status: string;
-      image_data?: any;
-      cost_usd: number;
-      ai_model?: string;
-    };
+        id: string;
+        thread_id: string;
+        user_id: string;
+        message: string;
+        message_type: 'assistant';
+        created_at: string;
+        metadata?: Record<string, any>;
+        status: string;
+        image_data?: any;
+        cost_usd: number;
+        ai_model?: string;
+        code?: {
+          javascript?: string;
+          css?: string;
+        };
+        codeAction?: 'replace' | 'append' | 'insert' | 'modify';
+        
+        // 새로운 통합 Git diff 형식
+        changes?: {
+          javascript?: {
+            diff: string;
+          };
+          css?: {
+            diff: string;
+          };
+        };
+      };
   };
   message: string;
 }
@@ -187,7 +202,67 @@ class AIService {
     return await response.json();
   }
 
-  // AI 채팅 메시지 전송
+  // AI 채팅 메시지 전송 (부분 수정 전용)
+  async sendPartialEditRequest(
+    userMessage: string,
+    currentCode: { javascript?: string; css?: string },
+    focusArea?: {
+      type: 'function' | 'selector' | 'line';
+      identifier: string;
+    },
+    threadId?: string,
+    siteCode?: string
+  ): Promise<SendChatMessageResponse> {
+    let enhancedPrompt = userMessage;
+    
+    // 현재 코드 컨텍스트 추가 (라인 번호 포함)
+    if (currentCode.javascript || currentCode.css) {
+      enhancedPrompt += '\n\n--- 현재 코드 (라인 번호 포함) ---\n';
+      
+      if (currentCode.javascript) {
+        const numberedJS = this.addLineNumbers(currentCode.javascript);
+        enhancedPrompt += `JavaScript:\n\`\`\`javascript\n${numberedJS}\n\`\`\`\n\n`;
+      }
+      
+      if (currentCode.css) {
+        const numberedCSS = this.addLineNumbers(currentCode.css);
+        enhancedPrompt += `CSS:\n\`\`\`css\n${numberedCSS}\n\`\`\`\n\n`;
+      }
+    }
+    
+    // 포커스 영역 지정
+    if (focusArea) {
+      enhancedPrompt += `\n특별히 "${focusArea.identifier}" ${focusArea.type}에 집중해서 수정해주세요.\n`;
+    }
+    
+    // Git diff 우선 요청
+    enhancedPrompt += '\n**중요**: Git diff 형식으로 응답해주세요. 토큰을 절약하고 정확한 수정을 위해 diff 형식을 우선 사용해주세요.';
+    
+    return await this.sendChatMessage(
+      enhancedPrompt,
+      threadId,
+      {
+        requestType: 'git_diff_preferred',
+        currentCode,
+        focusArea,
+        pageUrl: window.location.href
+      },
+      siteCode,
+      false
+    );
+  }
+
+  /**
+   * 코드에 라인 번호 추가 (Git diff를 위해)
+   */
+  private addLineNumbers(code: string): string {
+    return code
+      .split('\n')
+      .map((line, index) => `${(index + 1).toString().padStart(3, ' ')}: ${line}`)
+      .join('\n');
+  }
+
+  // AI 채팅 메시지 전송 (기존)
   async sendChatMessage(
     message: string, 
     threadId?: string, 

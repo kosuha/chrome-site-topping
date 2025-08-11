@@ -46,6 +46,234 @@
   gap: 8px;
 }
 
+/* 히스토리 컨트롤 */
+.historyControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+}
+
+.historyButton {
+  padding: 2px;
+  background: transparent;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.historyButton:hover:not(.disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: #888;
+}
+
+.historyButton.disabled {
+  color: #444;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.historyInfo {
+  font-size: 10px;
+  color: #666;
+  margin: 0 4px;
+  min-width: 24px;
+  text-align: center;
+}
+
+/* 코드 변경사항 블럭 */
+.codeChangeBlock {
+  margin: 4px 0;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  width: 350px;
+  max-width: 100%;
+  min-width: 0;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.codeChangeHeader {
+  padding: 6px 16px;
+  background: #f6f8fa;
+  border-bottom: 1px solid #d0d7de;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  min-height: 32px;
+}
+
+.codeChangeHeader:hover {
+  background: #f3f4f6;
+}
+
+.codeChangeIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.successIcon {
+  color: #1f883d;
+  font-weight: bold;
+}
+
+.errorIcon {
+  color: #d1242f;
+  font-weight: bold;
+}
+
+.codeChangeContent {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.codeChangeTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2328;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+
+.codeChangeSummary {
+  font-size: 12px;
+  color: #656d76;
+  font-weight: 500;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+  background: #f6f8fa;
+  padding: 2px 6px;
+  border-radius: 12px;
+  border: 1px solid #d0d7de;
+}
+
+.codeChangeSummary .addition {
+  color: #1f883d;
+  font-weight: 600;
+}
+
+.codeChangeSummary .deletion {
+  color: #d1242f;
+  font-weight: 600;
+}
+
+.codeChangeExpand {
+  display: flex;
+  align-items: center;
+  color: #656d76;
+  margin-left: 8px;
+}
+
+.codeChangeDetails {
+  border-top: 1px solid #d0d7de;
+  background: #ffffff;
+}
+
+.codeChangeDetailsContent {
+  padding: 0;
+  background: #ffffff;
+  overflow-x: auto;
+}
+
+.diffContent {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  min-width: max-content;
+}
+
+.diffLine {
+  padding: 0 16px;
+  margin: 0;
+  white-space: pre;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+
+.diffLineHeader {
+  background-color: #f1f8ff;
+  color: #656d76;
+  font-weight: 600;
+  border-top: 1px solid #d0d7de;
+  border-bottom: 1px solid #d0d7de;
+}
+
+.diffLineAddition {
+  background-color: #d1f4d1;
+  color: #1f2328;
+}
+
+.diffLineDeletion {
+  background-color: #ffd8d3;
+  color: #1f2328;
+}
+
+.diffLineContext {
+  background-color: #ffffff;
+  color: #656d76;
+}
+
+.diffLineNormal {
+  background-color: #ffffff;
+  color: #1f2328;
+}
+
+.codeChangeDetailsContent pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: #1f2328;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* GitHub diff 스타일 라인 */
+.diffLine {
+  display: block;
+  width: 100%;
+  padding: 0 12px;
+  margin: 0;
+  min-height: 18px;
+  line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+
+.diffLineAddition {
+  background-color: #d4edda !important;
+  color: #155724 !important;
+}
+
+.diffLineDeletion {
+  background-color: #f8d7da !important;
+  color: #721c24 !important;
+}
+
+.diffLineContext {
+  background-color: transparent;
+  color: #1f2328;
+}
+
 .headerActions {
   display: flex;
   align-items: center;
@@ -171,6 +399,8 @@
   border-radius: 18px;
   font-size: 14px;
   line-height: 1.4;
+  width: fit-content;
+  max-width: 100%;
   word-wrap: break-word;
 }
 
@@ -612,4 +842,79 @@
 
 .applyButton:active {
   transform: translateY(0);
+}
+
+/* AI 생성 코드 섹션 스타일 */
+.aiCodeSection {
+  margin-top: 12px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.aiCodeHeader {
+  padding: 10px 12px;
+  background: rgba(168, 85, 247, 0.1);
+  border-bottom: 1px solid rgba(168, 85, 247, 0.2);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.aiCodeHeader span:first-child {
+  font-size: 12px;
+  color: rgba(168, 85, 247, 1);
+  font-weight: 600;
+}
+
+.codeActionLabel {
+  font-size: 10px;
+  color: rgba(168, 85, 247, 0.8);
+  background: rgba(168, 85, 247, 0.1);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(168, 85, 247, 0.2);
+}
+
+.aiCodeBlock {
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  border-radius: 6px;
+  margin: 8px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.aiCodeBlock .codeHeader {
+  background: rgba(168, 85, 247, 0.1);
+  border-bottom: 1px solid rgba(168, 85, 247, 0.2);
+}
+
+.aiCodeBlock pre {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.aiCodeBlock .copyButton,
+.aiCodeBlock .applyButton {
+  margin-top: 0;
+  margin-left: 6px;
+}
+
+/* Undo 버튼 스타일 */
+.undoButton {
+  padding: 4px 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 4px;
+  color: rgba(239, 68, 68, 0.9);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.undoButton:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: rgb(239, 68, 68);
 }
