@@ -281,3 +281,56 @@
     0%, 100% { opacity: 0.5; }
     50% { opacity: 0.8; }
 }
+
+/* 배포 상태 메시지 */
+.statusMessage {
+    position: absolute;
+    left: 70px;
+    top: 20px;
+    max-width: 300px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    z-index: 10;
+    animation: slideInStatus 0.3s ease;
+}
+
+.statusMessage.success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.statusMessage.error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+@keyframes slideInStatus {
+    from {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.loading {
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+    100% {
+        opacity: 1;
+    }
+}

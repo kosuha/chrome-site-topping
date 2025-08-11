@@ -133,14 +133,17 @@ export class SiteIntegrationService {
     })
   }
 
-  async getSiteScripts(siteCode: string): Promise<{ script: string, version: number, last_updated: string }> {
-    return this.apiRequest<{ script: string, version: number, last_updated: string }>(`/sites/${siteCode}/scripts`)
+  async getSiteScripts(siteCode: string): Promise<{ css_content: string, js_content: string, version: number, last_updated: string }> {
+    return this.apiRequest<{ css_content: string, js_content: string, version: number, last_updated: string }>(`/sites/${siteCode}/scripts`)
   }
 
-  async deployScript(siteCode: string, script: string): Promise<any> {
+  async deployScript(siteCode: string, cssContent: string, jsContent: string): Promise<any> {
     return this.apiRequest<any>(`/sites/${siteCode}/scripts/deploy`, {
       method: 'POST',
-      body: JSON.stringify({ script })
+      body: JSON.stringify({ 
+        css_content: cssContent,
+        js_content: jsContent 
+      })
     })
   }
 
@@ -239,11 +242,13 @@ export class SiteIntegrationService {
 
   generateIntegrationScript(domain: string, siteCode?: string): string {
     if (siteCode) {
-      // site_code가 있는 경우 서버에서 동적 스크립트 로드
-      return `<script src='${this.baseUrl}/api/v1/sites/${siteCode}/script' type='module'></script>`
+      // CSS와 JS를 분리한 두 줄 스크립트
+      return `<link rel="stylesheet" href="${this.baseUrl}/api/v1/sites/${siteCode}/styles">
+<script src='${this.baseUrl}/api/v1/sites/${siteCode}/script' type='module'></script>`
     } else {
-      // site_code가 없는 경우 기본 스크립트 (도메인 기반)
-      return `<script src='${this.baseUrl}/api/v1/sites/default/script?domain=${encodeURIComponent(domain)}' type='module'></script>`
+      // site_code가 없는 경우 기본 스크립트 (도메인 기반)  
+      return `<link rel="stylesheet" href="${this.baseUrl}/api/v1/sites/default/styles?domain=${encodeURIComponent(domain)}">
+<script src='${this.baseUrl}/api/v1/sites/default/script?domain=${encodeURIComponent(domain)}' type='module'></script>`
     }
   }
 }

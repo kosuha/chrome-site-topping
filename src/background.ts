@@ -1,6 +1,11 @@
 import { toggleSidePanel } from './services/chrome';
 import { supabase } from './services/supabase';
 
+// Initialize declarativeNetRequest rules
+chrome.runtime.onInstalled.addListener(async () => {
+    console.log('[Background] Extension installed, static blocking rules from rules.json are active');
+});
+
 chrome.action.onClicked.addListener(async (tab) => {
     if (tab.id) {
         await toggleSidePanel(tab.id);
@@ -70,6 +75,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             });
         return true; // 비동기 응답을 위해 true 반환
     }
+
 
     // Handle auth requests from content script
     if (message.type === 'INIT_OAUTH') {

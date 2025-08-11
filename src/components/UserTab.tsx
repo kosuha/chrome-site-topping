@@ -12,6 +12,10 @@ export default function UserTab() {
   const [siteError, setSiteError] = useState<string>('')
   const [copied, setCopied] = useState(false)
   const [isChecking, setIsChecking] = useState(false)
+  const [newSiteDomain, setNewSiteDomain] = useState('')
+  const [isAddingSite, setIsAddingSite] = useState(false)
+  const [isDeletingSite, setIsDeletingSite] = useState<string | null>(null)
+  const [showAddForm, setShowAddForm] = useState(false)
   
   const siteService = SiteIntegrationService.getInstance()
 
@@ -128,6 +132,80 @@ export default function UserTab() {
     return currentSite || null
   }
 
+  const handleAddSite = async () => {
+    if (!newSiteDomain.trim() || isAddingSite) return;
+
+    try {
+      setIsAddingSite(true);
+      setSiteError('');
+
+      const sanitizedDomain = newSiteDomain.trim()
+        .toLowerCase()
+        .replace(/^https?:\/\//, '')
+        .replace(/^www\./, '')
+        .replace(/\/.*$/, '');
+
+      if (!sanitizedDomain) {
+        setSiteError('유효한 도메인을 입력해주세요.');
+        return;
+      }
+
+      // 중복 도메인 체크
+      if (connectedSites.some(site => site.domain === sanitizedDomain)) {
+        setSiteError('이미 등록된 도메인입니다.');
+        return;
+      }
+
+      await siteService.addSite({ domain: sanitizedDomain });
+      
+      // 사이트 목록 새로고침
+      await loadConnectedSites();
+      
+      // 폼 초기화
+      setNewSiteDomain('');
+      setShowAddForm(false);
+      
+    } catch (error) {
+      console.error('사이트 추가 실패:', error);
+      setSiteError(error instanceof Error ? error.message : '사이트 추가에 실패했습니다.');
+    } finally {
+      setIsAddingSite(false);
+    }
+  };
+
+  const handleDeleteSite = async (siteId: string) => {
+    if (isDeletingSite || !siteId) return;
+
+    const siteToDelete = connectedSites.find(site => site.id === siteId);
+    if (!siteToDelete) return;
+
+    if (!confirm(`정말로 "${siteToDelete.site_name || siteToDelete.domain}" 사이트를 삭제하시겠습니까?`)) {
+      return;
+    }
+
+    try {
+      setIsDeletingSite(siteId);
+      setSiteError('');
+
+      await siteService.deleteSite(siteId);
+      
+      // 선택된 사이트가 삭제된 경우 선택 초기화
+      if (selectedSiteId === siteId) {
+        setSelectedSiteId('');
+        setIntegrationScript('');
+      }
+      
+      // 사이트 목록 새로고침
+      await loadConnectedSites();
+      
+    } catch (error) {
+      console.error('사이트 삭제 실패:', error);
+      setSiteError(error instanceof Error ? error.message : '사이트 삭제에 실패했습니다.');
+    } finally {
+      setIsDeletingSite(null);
+    }
+  };
+
   if (loading) {
     return <div className={styles.loading}>Loading...</div>
   }
@@ -187,28 +265,79 @@ export default function UserTab() {
           </div>
           
           <div className={styles.siteManagement}>
+            <div className={styles.siteHeader}>
+              <h5>사이트 관리</h5>
+              <button 
+                className={styles.addButton}
+                onClick={() => setShowAddForm(!showAddForm)}
+              >
+                {showAddForm ? '취소' : '+ 새 사이트 추가'}
+              </button>
+            </div>
+
+            {showAddForm && (
+              <div className={styles.addSiteForm}>
+                <div className={styles.inputGroup}>
+                  <input
+                    type="text"
+                    className={styles.domainInput}
+                    placeholder="도메인 입력 (예: example.com)"
+                    value={newSiteDomain}
+                    onChange={(e) => setNewSiteDomain(e.target.value)}
+                    disabled={isAddingSite}
+                  />
+                  <button 
+                    className={styles.submitButton}
+                    onClick={handleAddSite}
+                    disabled={isAddingSite || !newSiteDomain.trim()}
+                  >
+                    {isAddingSite ? '추가 중...' : '추가'}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {connectedSites && connectedSites.length > 0 && (
-              <div className={styles.siteSelector}>
-                <label>연동된 사이트 선택:</label>
-                <select 
-                  className={styles.siteDropdown}
-                  value={selectedSiteId}
-                  onChange={(e) => handleSiteSelect(e.target.value)}
-                >
-                  <option value="">사이트를 선택하세요</option>
+              <div className={styles.sitesList}>
+                <label>등록된 사이트 목록:</label>
+                <div className={styles.sitesGrid}>
                   {connectedSites.map((site) => {
-                    const isCurrentSite = site.domain === currentDomain
-                    const statusIcon = site.connection_status === 'connected' ? ' ✓ 연결됨' : 
-                                     site.connection_status === 'checking' ? ' ⟳ 확인중' : ' ○ 연결안됨'
-                    const currentLabel = isCurrentSite ? ' [현재 사이트]' : ''
+                    const isCurrentSite = site.domain === currentDomain;
+                    const statusIcon = site.connection_status === 'connected' ? '✓' : 
+                                     site.connection_status === 'checking' ? '⟳' : '○';
                     
                     return (
-                      <option key={site.id} value={site.id}>
-                        {site.site_name} ({site.domain}){statusIcon}{currentLabel}
-                      </option>
-                    )
+                      <div 
+                        key={site.id} 
+                        className={`${styles.siteCard} ${selectedSiteId === site.id ? styles.selected : ''} ${isCurrentSite ? styles.current : ''}`}
+                        onClick={() => handleSiteSelect(site.id)}
+                      >
+                        <div className={styles.siteInfo}>
+                          <div className={styles.siteName}>
+                            {site.site_name || site.domain}
+                            {isCurrentSite && <span className={styles.currentBadge}>현재</span>}
+                          </div>
+                          <div className={styles.siteDomain}>{site.domain}</div>
+                          <div className={`${styles.siteStatus} ${styles[site.connection_status || 'disconnected']}`}>
+                            {statusIcon} {site.connection_status === 'connected' ? '연결됨' : 
+                                         site.connection_status === 'checking' ? '확인중' : '연결안됨'}
+                          </div>
+                        </div>
+                        <button 
+                          className={styles.deleteButton}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteSite(site.id);
+                          }}
+                          disabled={isDeletingSite === site.id}
+                          title="사이트 삭제"
+                        >
+                          {isDeletingSite === site.id ? '삭제중...' : '🗑️'}
+                        </button>
+                      </div>
+                    );
                   })}
-                </select>
+                </div>
               </div>
             )}
           </div>
