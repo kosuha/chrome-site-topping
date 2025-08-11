@@ -14,10 +14,8 @@ export const sendChromeMessage = async (tabId: number, message: ChromeMessage): 
 // 컨텐츠 스크립트 주입
 export const injectContentScript = async (tabId: number): Promise<void> => {
   try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ['src/content.tsx']
-    });
+    // Content script is already injected via manifest.json, no need to manually inject
+    console.log(`Content script injection not needed for tab ${tabId} - handled by manifest.json`);
   } catch (error) {
     console.error('Failed to inject content script:', error);
     throw error;

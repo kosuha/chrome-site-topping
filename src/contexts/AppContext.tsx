@@ -1,5 +1,24 @@
 import React, { createContext, useContext, useReducer, ReactNode, useMemo } from 'react';
 
+export interface ChatMessage {
+  id: string;
+  type: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+  codeBlocks?: {
+    language: string;
+    code: string;
+  }[];
+}
+
+export interface ChatThread {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface AppState {
   isOpen: boolean;
   activeTab: 'code' | 'chat' | 'user';
@@ -11,6 +30,9 @@ export interface AppState {
     javascript: string;
     css: string;
   };
+  chatThreads: ChatThread[];
+  currentThreadId: string | null;
+  isAiLoading: boolean;
 }
 
 export type AppAction = 
@@ -23,6 +45,12 @@ export type AppAction =
   | { type: 'SET_ERROR'; payload: string | null }
   | { type: 'TOGGLE_PREVIEW_MODE' }
   | { type: 'SET_EDITOR_CODE'; payload: { language: 'javascript' | 'css'; code: string } }
+  | { type: 'CREATE_NEW_THREAD'; payload?: string }
+  | { type: 'SET_CURRENT_THREAD'; payload: string }
+  | { type: 'ADD_MESSAGE_TO_THREAD'; payload: { threadId: string; message: ChatMessage } }
+  | { type: 'DELETE_THREAD'; payload: string }
+  | { type: 'UPDATE_THREAD_TITLE'; payload: { threadId: string; title: string } }
+  | { type: 'SET_AI_LOADING'; payload: boolean }
   | { type: 'RESET_STATE' };
 
 const initialState: AppState = {
@@ -36,6 +64,9 @@ const initialState: AppState = {
     javascript: '',
     css: ''
   },
+  chatThreads: [],
+  currentThreadId: null,
+  isAiLoading: false,
 };
 
 function appReducer(state: AppState, action: AppAction): AppState {
@@ -64,6 +95,74 @@ function appReducer(state: AppState, action: AppAction): AppState {
           [action.payload.language]: action.payload.code
         }
       };
+    case 'CREATE_NEW_THREAD':
+      // 빈 스레드가 있으면 그것을 사용
+      const emptyThread = state.chatThreads.find(thread => thread.messages.length === 0);
+      if (emptyThread) {
+        return {
+          ...state,
+          currentThreadId: emptyThread.id
+        };
+      }
+      
+      // 빈 스레드가 없으면 새로 생성
+      const newThreadId = Date.now().toString();
+      const newThread: ChatThread = {
+        id: newThreadId,
+        title: action.payload || 'New Chat',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      return {
+        ...state,
+        chatThreads: [newThread, ...state.chatThreads],
+        currentThreadId: newThreadId
+      };
+    case 'SET_CURRENT_THREAD':
+      return {
+        ...state,
+        currentThreadId: action.payload
+      };
+    case 'ADD_MESSAGE_TO_THREAD':
+      const updatedThreads = state.chatThreads.map(thread => {
+        if (thread.id === action.payload.threadId) {
+          return {
+            ...thread,
+            messages: [...thread.messages, action.payload.message],
+            updatedAt: new Date(),
+            title: thread.messages.length === 0 && action.payload.message.type === 'user' 
+              ? action.payload.message.content.slice(0, 30) + (action.payload.message.content.length > 30 ? '...' : '')
+              : thread.title
+          };
+        }
+        return thread;
+      });
+      return {
+        ...state,
+        chatThreads: updatedThreads
+      };
+    case 'DELETE_THREAD':
+      const remainingThreads = state.chatThreads.filter(thread => thread.id !== action.payload);
+      const nextCurrentThreadId = state.currentThreadId === action.payload 
+        ? (remainingThreads.length > 0 ? remainingThreads[0].id : null)
+        : state.currentThreadId;
+      return {
+        ...state,
+        chatThreads: remainingThreads,
+        currentThreadId: nextCurrentThreadId
+      };
+    case 'UPDATE_THREAD_TITLE':
+      return {
+        ...state,
+        chatThreads: state.chatThreads.map(thread =>
+          thread.id === action.payload.threadId
+            ? { ...thread, title: action.payload.title, updatedAt: new Date() }
+            : thread
+        )
+      };
+    case 'SET_AI_LOADING':
+      return { ...state, isAiLoading: action.payload };
     case 'RESET_STATE':
       return initialState;
     default:
@@ -84,7 +183,17 @@ interface AppContextType {
     setError: (error: string | null) => void;
     togglePreviewMode: () => void;
     setEditorCode: (language: 'javascript' | 'css', code: string) => void;
+    createNewThread: (title?: string) => void;
+    setCurrentThread: (threadId: string) => void;
+    addMessageToThread: (threadId: string, message: ChatMessage) => void;
+    deleteThread: (threadId: string) => void;
+    updateThreadTitle: (threadId: string, title: string) => void;
+    setAiLoading: (loading: boolean) => void;
     resetState: () => void;
+  };
+  computed: {
+    currentThread: ChatThread | null;
+    currentMessages: ChatMessage[];
   };
 }
 
@@ -107,14 +216,26 @@ export function AppProvider({ children }: AppProviderProps) {
     setError: (error: string | null) => dispatch({ type: 'SET_ERROR', payload: error }),
     togglePreviewMode: () => dispatch({ type: 'TOGGLE_PREVIEW_MODE' }),
     setEditorCode: (language: 'javascript' | 'css', code: string) => dispatch({ type: 'SET_EDITOR_CODE', payload: { language, code } }),
+    createNewThread: (title?: string) => dispatch({ type: 'CREATE_NEW_THREAD', payload: title }),
+    setCurrentThread: (threadId: string) => dispatch({ type: 'SET_CURRENT_THREAD', payload: threadId }),
+    addMessageToThread: (threadId: string, message: ChatMessage) => dispatch({ type: 'ADD_MESSAGE_TO_THREAD', payload: { threadId, message } }),
+    deleteThread: (threadId: string) => dispatch({ type: 'DELETE_THREAD', payload: threadId }),
+    updateThreadTitle: (threadId: string, title: string) => dispatch({ type: 'UPDATE_THREAD_TITLE', payload: { threadId, title } }),
+    setAiLoading: (loading: boolean) => dispatch({ type: 'SET_AI_LOADING', payload: loading }),
     resetState: () => dispatch({ type: 'RESET_STATE' }),
   }), [dispatch]);
+
+  const computed = useMemo(() => ({
+    currentThread: state.currentThreadId ? state.chatThreads.find(thread => thread.id === state.currentThreadId) || null : null,
+    currentMessages: state.currentThreadId ? state.chatThreads.find(thread => thread.id === state.currentThreadId)?.messages || [] : [],
+  }), [state.currentThreadId, state.chatThreads]);
 
   const contextValue = useMemo(() => ({
     state,
     dispatch,
     actions,
-  }), [state, dispatch, actions]);
+    computed,
+  }), [state, dispatch, actions, computed]);
 
   return (
     <AppContext.Provider value={contextValue}>
