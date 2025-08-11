@@ -76,6 +76,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // 비동기 응답을 위해 true 반환
     }
 
+    // 현재 도메인 가져오기 요청 처리
+    if (message.type === 'GET_CURRENT_DOMAIN' && sender.tab?.id) {
+        getCurrentDomain(sender.tab.id)
+            .then((domain) => {
+                console.log('[Background] Current domain:', domain);
+                sendResponse({ success: true, domain });
+            })
+            .catch((error) => {
+                console.error('[Background] Failed to get current domain:', error);
+                sendResponse({ success: false, error: error.message });
+            });
+        return true; // 비동기 응답을 위해 true 반환
+    }
 
     // Handle auth requests from content script
     if (message.type === 'INIT_OAUTH') {
@@ -85,6 +98,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true // Keep message channel open for async response
     }
 });
+
+async function getCurrentDomain(tabId: number): Promise<string | null> {
+    try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.url) {
+            // 특정 탭 ID로 탭 정보 가져오기
+            const specificTab = await chrome.tabs.get(tabId);
+            if (!specificTab?.url) return null;
+            
+            const url = new URL(specificTab.url);
+            return url.hostname;
+        }
+
+        const url = new URL(tab.url);
+        return url.hostname;
+    } catch (error) {
+        console.error('[Background] Error getting current domain:', error);
+        return null;
+    }
+}
 
 async function executeScriptInTab(tabId: number, code: string): Promise<any> {
     console.log('[Background] Executing script in tab:', tabId, 'Code length:', code.length);

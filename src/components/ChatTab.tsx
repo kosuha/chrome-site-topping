@@ -242,216 +242,6 @@ export default function ChatTab() {
   useEffect(() => {
     scrollToBottom();
   }, [computed.currentMessages, state.isAiLoading]);
-
-  // 더미 데이터 초기화 (개발용)
-  useEffect(() => {
-    const initDummyData = () => {
-      // 이미 메시지가 있으면 더미 데이터 추가하지 않음
-      if (computed.currentMessages.length > 0) return;
-      
-      // 현재 스레드가 없으면 새로 생성
-      if (!state.currentThreadId) {
-        actions.createNewThread();
-        return; // 다음 렌더링 사이클에서 더미 데이터 추가
-      }
-      
-      const dummyMessages = [
-        {
-          id: 'dummy-1',
-          type: 'user' as const,
-          content: '버튼 색상을 파란색으로 바꿔줘',
-          timestamp: new Date(Date.now() - 5 * 60 * 1000) // 5분 전
-        },
-        {
-          id: 'dummy-2',
-          type: 'assistant' as const,
-          content: '버튼 색상을 파란색으로 변경해드렸습니다.',
-          timestamp: new Date(Date.now() - 4 * 60 * 1000), // 4분 전
-          changes: {
-            css: {
-              diff: `@@ -1,5 +1,5 @@
- .button {
-   padding: 10px 20px;
-   border: none;
-   border-radius: 5px;
--  background-color: #gray;
-+  background-color: #3b82f6;
-   color: white;
-   cursor: pointer;
- }`
-            }
-          }
-        },
-        {
-          id: 'dummy-3',
-          type: 'user' as const,
-          content: '클릭 이벤트도 추가해줘',
-          timestamp: new Date(Date.now() - 3 * 60 * 1000) // 3분 전
-        },
-        {
-          id: 'dummy-4',
-          type: 'assistant' as const,
-          content: '버튼에 클릭 이벤트를 추가했습니다.',
-          timestamp: new Date(Date.now() - 2 * 60 * 1000), // 2분 전
-          changes: {
-            javascript: {
-              diff: `@@ -1,3 +1,8 @@
- document.addEventListener('DOMContentLoaded', function() {
-+  const button = document.querySelector('.button');
-+  button.addEventListener('click', function() {
-+    alert('버튼이 클릭되었습니다!');
-+  });
-+  
-   console.log('페이지 로드 완료');
- });`
-            }
-          }
-        },
-        {
-          id: 'dummy-5',
-          type: 'user' as const,
-          content: '애니메이션 효과도 넣어줘',
-          timestamp: new Date(Date.now() - 1 * 60 * 1000) // 1분 전
-        },
-        {
-          id: 'dummy-6',
-          type: 'assistant' as const,
-          content: '버튼에 호버 애니메이션과 클릭 효과를 추가했습니다.',
-          timestamp: new Date(Date.now() - 30 * 1000), // 30초 전
-          changes: {
-            css: {
-              diff: `@@ -1,8 +1,15 @@
- .button {
-   padding: 10px 20px;
-   border: none;
-   border-radius: 5px;
-   background-color: #3b82f6;
-   color: white;
-   cursor: pointer;
-+  transition: all 0.3s ease;
-+}
-+
-+.button:hover {
-+  background-color: #2563eb;
-+  transform: translateY(-2px);
-+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
- }`
-            },
-            javascript: {
-              diff: `@@ -2,6 +2,12 @@
- document.addEventListener('DOMContentLoaded', function() {
-   const button = document.querySelector('.button');
-   button.addEventListener('click', function() {
-+    // 클릭 애니메이션
-+    this.style.transform = 'scale(0.95)';
-+    setTimeout(() => {
-+      this.style.transform = '';
-+    }, 150);
-+    
-     alert('버튼이 클릭되었습니다!');
-   });
-   `
-            }
-          }
-        }
-      ];
-      
-      // 더미 메시지들을 추가하고 히스토리도 함께 생성
-      dummyMessages.forEach(message => {
-        actions.addMessageToThread(state.currentThreadId!, message);
-        
-        // AI 응답 메시지인 경우 히스토리 스택에도 추가
-        if (message.type === 'assistant' && message.changes) {
-          let newCode = {
-            javascript: state.editorCode.javascript,
-            css: state.editorCode.css
-          };
-          
-          // CSS 변경사항 적용
-          if (message.changes.css) {
-            if (message.id === 'dummy-2') {
-              newCode.css = `.button {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 5px;
-  background-color: #3b82f6;
-  color: white;
-  cursor: pointer;
-}`;
-            } else if (message.id === 'dummy-6') {
-              newCode.css = `.button {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 5px;
-  background-color: #3b82f6;
-  color: white;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.button:hover {
-  background-color: #2563eb;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-}`;
-            }
-          }
-          
-          // JavaScript 변경사항 적용
-          if (message.changes.javascript) {
-            if (message.id === 'dummy-4') {
-              newCode.javascript = `document.addEventListener('DOMContentLoaded', function() {
-  const button = document.querySelector('.button');
-  button.addEventListener('click', function() {
-    alert('버튼이 클릭되었습니다!');
-  });
-  
-  console.log('페이지 로드 완료');
-});`;
-            } else if (message.id === 'dummy-6') {
-              newCode.javascript = `document.addEventListener('DOMContentLoaded', function() {
-  const button = document.querySelector('.button');
-  button.addEventListener('click', function() {
-    // 클릭 애니메이션
-    this.style.transform = 'scale(0.95)';
-    setTimeout(() => {
-      this.style.transform = '';
-    }, 150);
-    
-    alert('버튼이 클릭되었습니다!');
-  });
-  
-  console.log('페이지 로드 완료');
-});`;
-            }
-          }
-          
-          // 코드 변경사항을 에디터와 히스토리에 적용
-          actions.setEditorCode('javascript', newCode.javascript);
-          actions.setEditorCode('css', newCode.css);
-          
-          // 히스토리 스택에 추가
-          const summary = {
-            javascript: message.changes.javascript ? { added: 5, removed: 0 } : undefined,
-            css: message.changes.css ? { added: 3, removed: 1 } : undefined
-          };
-          
-          actions.pushCodeHistory({
-            javascript: newCode.javascript,
-            css: newCode.css,
-            messageId: message.id,
-            description: message.content,
-            changeSummary: summary,
-            isSuccessful: true
-          });
-        }
-      });
-    };
-    
-    // 컴포넌트 마운트 후 약간의 지연을 두고 더미 데이터 추가
-    const timer = setTimeout(initDummyData, 100);
-    return () => clearTimeout(timer);
-  }, [state.currentThreadId, computed.currentMessages.length, actions]);
   
   // Handle image file selection
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -540,46 +330,40 @@ export default function ChatTab() {
   const handleSendMessage = async () => {
     if ((!inputValue.trim() && attachedImages.length === 0) || state.isAiLoading || loadingImages.length > 0) return;
     
-    // 현재 스레드가 없거나 비어있지 않으면 빈 스레드 찾기 또는 새로 생성
+    // 현재 스레드 ID 확보
     let currentThreadId = state.currentThreadId;
-    if (!currentThreadId) {
-      // 빈 스레드(메시지가 없는 스레드) 찾기
-      const emptyThread = state.chatThreads.find(thread => thread.messages.length === 0);
-      if (emptyThread) {
-        actions.setCurrentThread(emptyThread.id);
-        currentThreadId = emptyThread.id;
-      } else {
-        // 빈 스레드가 없으면 서버를 통해 새로 생성
-        try {
-          console.log('🆕 새 스레드 생성 시도');
-          const response = await aiService.createThread();
-          console.log('🆕 스레드 생성 응답:', response);
-          
-          if (response.status === 'success') {
-            const threadId = response.data.threadId || response.data.id;
-            if (!threadId) {
-              throw new Error('서버에서 스레드 ID를 반환하지 않았습니다');
-            }
-            
-            const newThread = {
-              id: threadId,
-              title: response.data.title || '새 대화',
-              messages: [],
-              createdAt: new Date(response.data.created_at || Date.now()),
-              updatedAt: new Date(response.data.updated_at || Date.now()),
-            };
-            
-            console.log('🆕 새 스레드 생성 완료:', newThread.id);
-            actions.addServerThread(newThread);
-            actions.setCurrentThread(newThread.id);
-            currentThreadId = newThread.id;
-          } else {
-            throw new Error('스레드 생성 실패');
+    
+    // 현재 스레드가 없거나 빈 문자열이면 새로 생성
+    if (!currentThreadId || currentThreadId.trim() === '') {
+      try {
+        console.log('🆕 새 스레드 생성 시도');
+        const response = await aiService.createThread();
+        console.log('🆕 스레드 생성 응답:', response);
+        
+        if (response.status === 'success') {
+          const threadId = response.data.threadId || response.data.id;
+          if (!threadId) {
+            throw new Error('서버에서 스레드 ID를 반환하지 않았습니다');
           }
-        } catch (error) {
-          console.error('새 스레드 생성 실패:', error);
-          return; // 스레드 생성 실패 시 메시지 전송 중단
+          
+          const newThread = {
+            id: threadId,
+            title: response.data.title || '새 대화',
+            messages: [],
+            createdAt: new Date(response.data.created_at || Date.now()),
+            updatedAt: new Date(response.data.updated_at || Date.now()),
+          };
+          
+          console.log('🆕 새 스레드 생성 완료:', newThread.id);
+          actions.addServerThread(newThread);
+          actions.setCurrentThread(newThread.id);
+          currentThreadId = newThread.id;
+        } else {
+          throw new Error('스레드 생성 실패');
         }
+      } catch (error) {
+        console.error('새 스레드 생성 실패:', error);
+        return; // 스레드 생성 실패 시 메시지 전송 중단
       }
     }
     
@@ -919,34 +703,9 @@ export default function ChatTab() {
           </button>
           <button
             className={styles.newChatButton}
-            onClick={async () => {
-              try {
-                const response = await aiService.createThread();
-                if (response.status === 'success') {
-                  const threadId = response.data.threadId || response.data.id;
-                  if (!threadId) {
-                    throw new Error('서버에서 스레드 ID를 반환하지 않았습니다');
-                  }
-                  
-                  const newThread = {
-                    id: threadId,
-                    title: response.data.title || '새 대화',
-                    messages: [],
-                    createdAt: new Date(response.data.created_at || Date.now()),
-                    updatedAt: new Date(response.data.updated_at || Date.now()),
-                  };
-                  
-                  actions.addServerThread(newThread);
-                  actions.setCurrentThread(newThread.id);
-                } else {
-                  // 에러 시 로컬에서만 생성
-                  actions.createNewThread();
-                }
-              } catch (error) {
-                console.error('새 스레드 생성 실패:', error);
-                // 에러 시 로컬에서만 생성
-                actions.createNewThread();
-              }
+            onClick={() => {
+              // 현재 스레드 해제 - 다음 메시지 전송 시 새 스레드 생성됨
+              actions.setCurrentThread('');
             }}
             title="새 채팅"
           >

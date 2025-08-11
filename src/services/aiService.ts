@@ -78,14 +78,16 @@ export interface CreateThreadResponse {
 
 export interface GetThreadsResponse {
   status: 'success' | 'error';
-  data: Array<{
-    id: string;
-    user_id: string;
-    title: string;
-    site_code?: string;
-    created_at: string;
-    updated_at: string;
-  }>;
+  data: {
+    threads: Array<{
+      id: string;
+      user_id: string;
+      title: string;
+      site_code?: string;
+      created_at: string;
+      updated_at: string;
+    }>;
+  };
   message: string;
 }
 
@@ -316,17 +318,50 @@ class AIService {
   // 현재 도메인의 사이트 코드 가져오기 (배포용)
   async getCurrentSiteCode(): Promise<string | null> {
     try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab?.url) return null;
+      // Chrome extension 환경 체크
+      if (typeof chrome !== 'undefined' && chrome.runtime) {
+        // background script를 통해 도메인 가져오기
+        const response = await new Promise<{ success: boolean; domain?: string; error?: string }>((resolve) => {
+          chrome.runtime.sendMessage(
+            { type: 'GET_CURRENT_DOMAIN' },
+            (response) => {
+              if (chrome.runtime.lastError) {
+                console.error('Chrome runtime error:', chrome.runtime.lastError);
+                resolve({ success: false, error: chrome.runtime.lastError.message });
+              } else {
+                resolve(response);
+              }
+            }
+          );
+        });
 
-      const url = new URL(tab.url);
-      const domain = url.hostname;
+        if (response.success && response.domain) {
+          console.log('Background script로부터 도메인 획득:', response.domain);
+          return response.domain;
+        } else {
+          console.warn('Background script에서 도메인 가져오기 실패:', response.error);
+        }
+      }
 
-      // 서버에서 현재 도메인에 해당하는 사이트 코드 조회
-      // 이 부분은 실제 사이트 목록 API와 연동해야 함
-      return domain; // 임시로 도메인을 반환
+      // Chrome extension이 아니거나 실패한 경우 fallback 사용
+      return this.getFallbackDomain();
     } catch (error) {
       console.error('현재 사이트 코드 가져오기 실패:', error);
+      return this.getFallbackDomain();
+    }
+  }
+
+  // 대체 도메인 가져오기 (웹 환경용)
+  private getFallbackDomain(): string | null {
+    try {
+      if (typeof window !== 'undefined' && window.location) {
+        const domain = window.location.hostname;
+        console.log('Fallback: 웹 환경에서 현재 도메인 사용:', domain);
+        return domain;
+      }
+      return null;
+    } catch (error) {
+      console.error('Fallback 도메인 가져오기 실패:', error);
       return null;
     }
   }

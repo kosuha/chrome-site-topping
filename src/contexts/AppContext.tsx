@@ -230,28 +230,10 @@ function appReducer(state: AppState, action: AppAction): AppState {
         lastAppliedChange: null
       };
     case 'CREATE_NEW_THREAD':
-      // 빈 스레드가 있으면 그것을 사용
-      const emptyThread = state.chatThreads.find(thread => thread.messages.length === 0);
-      if (emptyThread) {
-        return {
-          ...state,
-          currentThreadId: emptyThread.id
-        };
-      }
-      
-      // 빈 스레드가 없으면 새로 생성
-      const newThreadId = Date.now().toString();
-      const newThread: ChatThread = {
-        id: newThreadId,
-        title: action.payload || 'New Chat',
-        messages: [],
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
+      // 현재 스레드만 해제 - 실제 스레드 생성은 메시지 전송 시에 수행
       return {
         ...state,
-        chatThreads: [newThread, ...state.chatThreads],
-        currentThreadId: newThreadId
+        currentThreadId: ''
       };
     case 'SET_CURRENT_THREAD':
       return {

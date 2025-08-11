@@ -14,13 +14,7 @@ export interface DOMElementInfo {
 export interface ExtractedDOMInfo {
   url: string;
   title: string;
-  description?: string;
   structure: DOMElementInfo;
-  headElements: {
-    title: string;
-    meta: Array<{ name?: string; property?: string; content?: string; }>;
-    links: Array<{ rel?: string; href?: string; }>;
-  };
 }
 
 class DOMExtractor {
@@ -35,9 +29,7 @@ class DOMExtractor {
       const result: ExtractedDOMInfo = {
         url: window.location.href,
         title: document.title,
-        description: this.getMetaDescription(),
         structure: this.extractElement(document.body, extensionRoot),
-        headElements: this.extractHeadElements(),
       };
 
       return result;
@@ -190,42 +182,6 @@ class DOMExtractor {
   }
 
   /**
-   * meta description 추출
-   */
-  private getMetaDescription(): string | undefined {
-    const metaDesc = document.querySelector('meta[name="description"]') as HTMLMetaElement;
-    return metaDesc?.content || undefined;
-  }
-
-  /**
-   * head 요소들의 중요한 정보 추출
-   */
-  private extractHeadElements() {
-    const title = document.title;
-    
-    const meta: Array<{ name?: string; property?: string; content?: string; }> = [];
-    document.querySelectorAll('meta[name], meta[property]').forEach(metaEl => {
-      const element = metaEl as HTMLMetaElement;
-      meta.push({
-        name: element.name || undefined,
-        property: element.getAttribute('property') || undefined,
-        content: element.content || undefined,
-      });
-    });
-
-    const links: Array<{ rel?: string; href?: string; }> = [];
-    document.querySelectorAll('link[rel]').forEach(linkEl => {
-      const element = linkEl as HTMLLinkElement;
-      links.push({
-        rel: element.rel || undefined,
-        href: element.href || undefined,
-      });
-    });
-
-    return { title, meta, links };
-  }
-
-  /**
    * DOM 구조를 AI가 읽기 쉬운 텍스트 형태로 변환
    */
   formatDOMForAI(domInfo: ExtractedDOMInfo): string {
@@ -234,9 +190,6 @@ class DOMExtractor {
     result += `# 웹페이지 정보\n`;
     result += `- URL: ${domInfo.url}\n`;
     result += `- 제목: ${domInfo.title}\n`;
-    if (domInfo.description) {
-      result += `- 설명: ${domInfo.description}\n`;
-    }
     result += `\n`;
 
     result += `# DOM 구조\n`;

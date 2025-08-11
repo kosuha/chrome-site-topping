@@ -22,18 +22,34 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
         setIsLoading(true);
         const response = await aiService.getThreads();
         
-        if (response.status === 'success') {
-          // 서버 데이터를 로컬 상태 형식으로 변환
-          const serverThreads = response.data.map(thread => ({
-            id: thread.id,
-            title: thread.title || '새 대화',
-            messages: [], // 메시지는 별도로 로드
-            createdAt: new Date(thread.created_at || Date.now()),
-            updatedAt: new Date(thread.updated_at || Date.now()),
-          }));
+        console.log('🔍 스레드 목록 응답:', response);
+        
+        if (response.status === 'success' && response.data) {
+          // 서버 응답 구조: { status: "success", data: { threads: [...] } }
+          const threadsArray = response.data.threads;
           
-          // 로컬 상태 업데이트
-          actions.loadThreadsFromServer(serverThreads);
+          console.log('🔍 스레드 배열:', threadsArray);
+          
+          // 배열인지 확인
+          if (Array.isArray(threadsArray)) {
+            // 서버 데이터를 로컬 상태 형식으로 변환
+            const serverThreads = threadsArray.map(thread => ({
+              id: thread.id,
+              title: thread.title || '새 대화',
+              messages: [], // 메시지는 별도로 로드
+              createdAt: new Date(thread.created_at || Date.now()),
+              updatedAt: new Date(thread.updated_at || Date.now()),
+            }));
+            
+            console.log('🔍 변환된 스레드:', serverThreads);
+            
+            // 로컬 상태 업데이트
+            actions.loadThreadsFromServer(serverThreads);
+          } else {
+            console.warn('⚠️ 스레드 데이터가 배열이 아닙니다:', threadsArray);
+          }
+        } else {
+          console.warn('⚠️ 스레드 응답이 성공하지 않음:', response);
         }
       } catch (error) {
         console.error('스레드 목록 로드 실패:', error);
@@ -60,37 +76,9 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
   };
 
   const handleNewThread = async () => {
-    try {
-      setIsLoading(true);
-      const response = await aiService.createThread();
-      
-      if (response.status === 'success') {
-        // 서버에서 생성된 스레드를 로컬 상태에 추가
-        const threadId = response.data.threadId || response.data.id;
-        if (!threadId) {
-          throw new Error('서버에서 스레드 ID를 반환하지 않았습니다');
-        }
-        
-        const newThread = {
-          id: threadId,
-          title: response.data.title || '새 대화',
-          messages: [],
-          createdAt: new Date(response.data.created_at || Date.now()),
-          updatedAt: new Date(response.data.updated_at || Date.now()),
-        };
-        
-        actions.addServerThread(newThread);
-        actions.setCurrentThread(newThread.id);
-        onNewThread?.();
-      }
-    } catch (error) {
-      console.error('새 스레드 생성 실패:', error);
-      // 에러 시 로컬에서만 생성
-      actions.createNewThread();
-      onNewThread?.();
-    } finally {
-      setIsLoading(false);
-    }
+    // 현재 스레드만 해제 - 실제 메시지 전송 시 새 스레드 생성됨
+    actions.setCurrentThread('');
+    onNewThread?.();
   };
 
   const handleThreadClick = (threadId: string) => {
