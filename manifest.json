@@ -42,5 +42,11 @@
         "path": "rules.json"
       }
     ]
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/*", ".vite/*"],
+      "matches": ["*://*/*"]
+    }
+  ]
 }

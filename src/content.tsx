@@ -5,6 +5,7 @@ import AppWrapper from './components/AppWrapper';
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
+let shadowRoot: ShadowRoot | null = null;
 
 function App() {
   return (
@@ -18,11 +19,45 @@ function App() {
 
 function initializeApp() {
   if (!container) {
+    // Create container element
     container = document.createElement('div');
     container.id = 'site-topping-root';
+    
+    // Create Shadow DOM
+    shadowRoot = container.attachShadow({ mode: 'closed' });
+    
+    // Create React root container inside Shadow DOM
+    const shadowContainer = document.createElement('div');
+    shadowContainer.id = 'site-topping-app';
+    shadowRoot.appendChild(shadowContainer);
+    
+    // Inject CSS into Shadow DOM
+    // Find CSS file dynamically from manifest
+    const manifestUrl = chrome.runtime.getURL('.vite/manifest.json');
+    fetch(manifestUrl)
+      .then(response => response.json())
+      .then(manifest => {
+        const contentEntry = manifest['src/content.tsx'];
+        if (contentEntry?.css?.[0]) {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = chrome.runtime.getURL(contentEntry.css[0]);
+          shadowRoot?.appendChild(link);
+        }
+      })
+      .catch(() => {
+        // Fallback: try common CSS file patterns
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = chrome.runtime.getURL('assets/content.css');
+        shadowRoot?.appendChild(link);
+      });
+    
+    // Append container to body
     document.body.appendChild(container);
 
-    root = createRoot(container);
+    // Create React root inside Shadow DOM
+    root = createRoot(shadowContainer);
     root.render(<App />);
   }
 }
