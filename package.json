@@ -29,6 +29,7 @@
     "@uiw/codemirror-themes-all": "^4.24.2",
     "@uiw/react-codemirror": "^4.24.2",
     "@vitejs/plugin-react": "^4.7.0",
+    "diff": "^5.2.0",
     "lucide-react": "^0.536.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

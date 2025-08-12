@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import styles from '../styles/SidePanel.module.css';
 import { TABS } from '../utils/constants';
 import { useAppContext } from '../contexts/AppContext';
-import { ArrowRightFromLine, BotMessageSquare, Code, User, Eye, EyeClosed, Upload } from 'lucide-react';
+import { ArrowRightFromLine, BotMessageSquare, Code, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigRight } from 'lucide-react';
 import { applyCodeToPage, removeCodeFromPage } from '../services/codePreview';
 import { useDebounce } from '../hooks/useDebounce';
 import { SiteIntegrationService } from '../services/siteIntegration';
@@ -123,6 +123,24 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
           title={isDeploying ? "배포 중..." : "배포"}
         >
           <Upload size={24} />
+        </button>
+
+        {/* 전역 히스토리 제어 버튼 */}
+        <button
+          className={styles.tabBtn}
+          onClick={() => actions.goBackHistory()}
+          disabled={state.currentHistoryIndex <= 0}
+          title="코드 변경 이전으로"
+        >
+          <ArrowBigLeft size={24} />
+        </button>
+        <button
+          className={styles.tabBtn}
+          onClick={() => actions.goForwardHistory()}
+          disabled={state.currentHistoryIndex >= state.codeHistoryStack.length - 1}
+          title="코드 변경 이후로"
+        >
+          <ArrowBigRight size={24} />
         </button>
       </div>
 

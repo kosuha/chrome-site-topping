@@ -25,6 +25,43 @@
   gap: 16px;
 }
 
+/* 저장 버튼 영역 */
+.actionsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.actionButtons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.saveButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #10b981;
+  color: white;
+  border: 1px solid #0ea371;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.saveButton:hover {
+  background: #0ea371;
+}
+
+.saveButton:active {
+  transform: translateY(1px);
+}
+
 .header::before {
   content: '';
   position: absolute;

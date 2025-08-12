@@ -146,6 +146,18 @@
     /* margin-bottom: 4px; */
 }
 
+/* 비활성 상태 */
+.tabBtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: transparent;
+    transform: none;
+}
+.tabBtn:disabled:hover {
+    background: transparent;
+    color: #999;
+}
+
 .activePreview {
     position: relative;
     color: #0080ff;

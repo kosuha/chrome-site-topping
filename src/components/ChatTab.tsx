@@ -4,7 +4,7 @@ import ThreadManager from './ThreadManager';
 import aiService from '../services/aiService';
 import domExtractor from '../services/domExtractor';
 import styles from '../styles/ChatTab.module.css';
-import { ArrowUp, Loader, Paperclip, X, List, CirclePlus, ArrowBigLeft, ArrowBigRight } from 'lucide-react';
+import { ArrowUp, Loader, Paperclip, X, List, CirclePlus } from 'lucide-react';
 import MessageComponent from './MessageComponent';
 import useThreadSSE from '../hooks/useThreadSSE';
 import useImageAttachments from '../hooks/useImageAttachments';
@@ -206,25 +206,6 @@ export default function ChatTab() {
       <div className={styles.header}>
         <h3 className={styles.title}>AI 채팅</h3>
         <div className={styles.headerActions}>
-          <div className={styles.historyControls}>
-            <button
-              className={`${styles.historyButton} ${state.currentHistoryIndex <= 0 ? styles.disabled : ''}`}
-              onClick={() => actions.goBackHistory()}
-              disabled={state.currentHistoryIndex <= 0}
-              title="코드 변경 이전으로"
-            >
-              <ArrowBigLeft size={14} />
-            </button>
-            <button
-              className={`${styles.historyButton} ${state.currentHistoryIndex >= state.codeHistoryStack.length - 1 ? styles.disabled : ''}`}
-              onClick={() => actions.goForwardHistory()}
-              disabled={state.currentHistoryIndex >= state.codeHistoryStack.length - 1}
-              title="코드 변경 이후로"
-            >
-              <ArrowBigRight size={14} />
-            </button>
-          </div>
-
           <button className={styles.threadButton} onClick={() => setShowThreads(true)} title="대화 목록">
             <List size={16} />
           </button>
