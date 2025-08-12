@@ -918,3 +918,134 @@
   border-color: rgba(239, 68, 68, 0.4);
   color: rgb(239, 68, 68);
 }
+
+/* 메시지 상태별 스타일 */
+.pendingMessage {
+  opacity: 0.9;
+  background: rgba(168, 85, 247, 0.08) !important;
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  position: relative;
+  overflow: hidden;
+}
+
+.pendingMessage::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(168, 85, 247, 0.1),
+    transparent
+  );
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+.inProgressMessage {
+  background: rgba(59, 130, 246, 0.05) !important;
+  border: 1px solid rgba(59, 130, 246, 0.1);
+}
+
+.failedMessage {
+  background: rgba(239, 68, 68, 0.05) !important;
+  border: 1px solid rgba(239, 68, 68, 0.1);
+}
+
+/* Pending 상태 점 애니메이션 */
+.pendingDots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 0;
+  justify-content: center;
+}
+
+.pendingDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(168, 85, 247, 0.8);
+  animation: pendingPulse 1.2s ease-in-out infinite;
+  box-shadow: 0 0 4px rgba(168, 85, 247, 0.3);
+}
+
+.pendingDot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.pendingDot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes pendingPulse {
+  0%, 70%, 100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  35% {
+    transform: scale(1.3);
+    opacity: 1;
+  }
+}
+
+/* In Progress 상태 스타일 */
+.inProgressIndicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(59, 130, 246, 0.9);
+  font-size: 13px;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.inProgressSpinner {
+  animation: spin 1s linear infinite;
+  color: rgba(59, 130, 246, 0.8);
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.partialContent {
+  color: rgba(255, 255, 255, 0.8);
+  font-style: italic;
+}
+
+/* Failed 상태 스타일 */
+.failedIndicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(239, 68, 68, 0.9);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.failedIcon {
+  color: rgba(239, 68, 68, 0.8);
+}
+
+.errorContent {
+  color: rgba(239, 68, 68, 0.7);
+  font-style: italic;
+  margin-top: 8px;
+}

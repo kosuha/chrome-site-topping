@@ -22,13 +22,9 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
         setIsLoading(true);
         const response = await aiService.getThreads();
         
-        console.log('🔍 스레드 목록 응답:', response);
-        
         if (response.status === 'success' && response.data) {
           // 서버 응답 구조: { status: "success", data: { threads: [...] } }
           const threadsArray = response.data.threads;
-          
-          console.log('🔍 스레드 배열:', threadsArray);
           
           // 배열인지 확인
           if (Array.isArray(threadsArray)) {
@@ -40,8 +36,6 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
               createdAt: new Date(thread.created_at || Date.now()),
               updatedAt: new Date(thread.updated_at || Date.now()),
             }));
-            
-            console.log('🔍 변환된 스레드:', serverThreads);
             
             // 로컬 상태 업데이트
             actions.loadThreadsFromServer(serverThreads);
@@ -77,12 +71,59 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
 
   const handleNewThread = async () => {
     // 현재 스레드만 해제 - 실제 메시지 전송 시 새 스레드 생성됨
-    actions.setCurrentThread('');
+    actions.setCurrentThread(null);
     onNewThread?.();
   };
 
-  const handleThreadClick = (threadId: string) => {
+  const handleThreadClick = async (threadId: string) => {
     actions.setCurrentThread(threadId);
+    
+    // 해당 스레드의 메시지를 서버에서 로드
+    try {
+      const response = await aiService.getThreadMessages(threadId);
+      
+      if (response.status === 'success' && response.data?.messages) {
+        
+        // 서버 메시지를 ChatMessage 형식으로 변환
+        const convertedMessages = response.data.messages.map((msg, _) => {
+          
+          const converted = {
+            id: msg.id,
+            type: msg.message_type as 'user' | 'assistant',
+            content: msg.message,
+            timestamp: new Date(msg.created_at),
+            // 메시지 상태 처리 - 서버 'error' 상태를 클라이언트 'failed'로 매핑
+            status: (() => {
+              const serverStatus = msg.status as 'pending' | 'in_progress' | 'completed' | 'error';
+              if (serverStatus === 'error') return 'failed' as const;
+              return (serverStatus || 'completed') as 'pending' | 'in_progress' | 'completed' | 'failed';
+            })(),
+            // 메타데이터에서 코드 변경사항 추출 시도
+            changes: (() => {
+              try {
+                if (msg.metadata) {
+                  const metadata = typeof msg.metadata === 'string' 
+                    ? JSON.parse(msg.metadata) 
+                    : msg.metadata;
+                  return metadata.changes || undefined;
+                }
+              } catch (error) {
+                console.warn('메타데이터 파싱 실패:', error);
+              }
+              return undefined;
+            })()
+          };
+          return converted;
+        });
+        
+        // AppContext에 메시지 로드
+        actions.loadThreadMessages(threadId, convertedMessages);
+        
+      }
+    } catch (error) {
+      console.error('❌ 스레드 메시지 로드 오류:', error);
+    }
+    
     onThreadSelect?.(threadId);
   };
 
@@ -214,9 +255,6 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
                         {thread.title}
                       </div>
                       <div className={styles.threadMeta}>
-                        <span className={styles.messageCount}>
-                          {thread.messages.length}개 메시지
-                        </span>
                         <span className={styles.threadDate}>
                           {formatDate(thread.updatedAt)}
                         </span>

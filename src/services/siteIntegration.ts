@@ -56,10 +56,6 @@ export class SiteIntegrationService {
           }
         }
         
-        // 모든 저장된 키 확인 (디버깅용)
-        const allData = await chrome.storage.local.get(null)
-        console.log('Chrome storage 내용:', Object.keys(allData))
-        
       } catch (error) {
         console.error('Chrome storage 접근 오류:', error)
       }
@@ -186,7 +182,7 @@ export class SiteIntegrationService {
       const existingScript = document.querySelector(`script[src="${scriptUrl}"]`)
       
       if (existingScript) {
-        console.log('연동 스크립트 태그 발견:', scriptUrl)
+        
         return true
       }
 
@@ -194,7 +190,7 @@ export class SiteIntegrationService {
       // window 객체에 사이트 특정 식별자가 있는지 확인
       const siteIdentifier = `siteTopping_${siteCode}`
       if ((window as any)[siteIdentifier]) {
-        console.log('연동 스크립트 실행 상태 확인됨:', siteIdentifier)
+        
         return true
       }
 
@@ -202,12 +198,12 @@ export class SiteIntegrationService {
       try {
         const response = await fetch(scriptUrl, { method: 'HEAD' })
         if (response.ok) {
-          console.log('연동 스크립트 URL 응답 확인:', response.status)
+          
           // 스크립트가 서버에 존재하지만 아직 설치되지 않은 상태
           return false
         }
       } catch (fetchError) {
-        console.log('연동 스크립트 URL 확인 실패:', fetchError)
+        
       }
 
       return false

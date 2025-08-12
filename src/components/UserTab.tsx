@@ -35,8 +35,6 @@ export default function UserTab() {
       const response = await siteService.getUserSites()
       // API 응답 구조 확인: sites 배열이 직접 반환됨
       const sitesArray = Array.isArray(response) ? response : ((response as any)?.sites || []);
-      console.log('연동된 사이트 목록:', sitesArray);
-
       
       // 연결 상태를 실제 스크립트 설치 여부로 확인
       const sitesWithStatus = await Promise.all(sitesArray.map(async (site: any) => {
@@ -63,16 +61,12 @@ export default function UserTab() {
       // 현재 도메인과 일치하는 사이트를 우선 선택
       const currentSite = sitesWithStatus.find((site: any) => site.domain === currentDomain)
       if (currentSite) {
-        console.log('현재 도메인과 일치하는 사이트 자동 선택:', currentSite.site_name, currentSite.domain)
         setSelectedSiteId(currentSite.id)
         await loadSiteScript(currentSite)
       } else if (sitesWithStatus.length > 0) {
         // 현재 도메인과 일치하는 사이트가 없으면 첫 번째 사이트 선택
-        console.log('현재 도메인과 일치하는 사이트가 없어 첫 번째 사이트 선택:', sitesWithStatus[0].site_name)
         setSelectedSiteId(sitesWithStatus[0].id)
         await loadSiteScript(sitesWithStatus[0])
-      } else {
-        console.log('연동된 사이트가 없습니다')
       }
     } catch (err) {
       setSiteError(err instanceof Error ? err.message : '사이트 목록을 불러오는 중 오류가 발생했습니다.')

@@ -5,6 +5,7 @@ export interface ChatMessage {
   type: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  status?: 'pending' | 'in_progress' | 'completed' | 'failed'; // 메시지 상태
   codeBlocks?: {
     language: string;
     code: string;
@@ -99,12 +100,14 @@ type AppAction =
   | { type: 'SET_CURRENT_THREAD'; payload: string | null }
   | { type: 'ADD_MESSAGE'; payload: { threadId: string; message: ChatMessage } }
   | { type: 'ADD_MESSAGE_TO_THREAD'; payload: { threadId: string; message: ChatMessage } }
+  | { type: 'UPDATE_MESSAGE_IN_THREAD'; payload: { threadId: string; messageId: string; message: ChatMessage } }
   | { type: 'DELETE_THREAD'; payload: string }
   | { type: 'UPDATE_THREAD_TITLE'; payload: { threadId: string; title: string } }
   | { type: 'SET_AI_LOADING'; payload: boolean }
   | { type: 'RESET_STATE' }
   | { type: 'LOAD_THREADS_FROM_SERVER'; payload: ChatThread[] }
-  | { type: 'ADD_SERVER_THREAD'; payload: ChatThread };
+  | { type: 'ADD_SERVER_THREAD'; payload: ChatThread }
+  | { type: 'LOAD_THREAD_MESSAGES'; payload: { threadId: string; messages: ChatMessage[] } };
 
 const initialState: AppState = {
   isOpen: false,
@@ -233,7 +236,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
       // 현재 스레드만 해제 - 실제 스레드 생성은 메시지 전송 시에 수행
       return {
         ...state,
-        currentThreadId: ''
+        currentThreadId: null
       };
     case 'SET_CURRENT_THREAD':
       return {
@@ -257,6 +260,25 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         chatThreads: updatedThreads
+      };
+    case 'UPDATE_MESSAGE_IN_THREAD':
+      const threadsWithUpdatedMessage = state.chatThreads.map(thread => {
+        if (thread.id === action.payload.threadId) {
+          return {
+            ...thread,
+            messages: thread.messages.map(message => 
+              message.id === action.payload.messageId 
+                ? action.payload.message 
+                : message
+            ),
+            updatedAt: new Date()
+          };
+        }
+        return thread;
+      });
+      return {
+        ...state,
+        chatThreads: threadsWithUpdatedMessage
       };
     case 'DELETE_THREAD':
       const remainingThreads = state.chatThreads.filter(thread => thread.id !== action.payload);
@@ -290,6 +312,55 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         chatThreads: [action.payload, ...state.chatThreads]
+      };
+    case 'LOAD_THREAD_MESSAGES':
+      const loadedThreads = state.chatThreads.map(thread => {
+        if (thread.id !== action.payload.threadId) return thread;
+
+        const serverMessages = action.payload.messages;
+        const serverMap = new Map(serverMessages.map(m => [m.id, m]));
+
+        // 우선 서버 메시지 기준으로 병합
+        const rank = (s?: ChatMessage['status']) => {
+          switch (s) {
+            case 'failed': return 3;
+            case 'completed': return 2;
+            case 'in_progress': return 1;
+            case 'pending': return 0;
+            default: return -1;
+          }
+        };
+
+        const merged = serverMessages.map(sm => {
+          const existing = thread.messages.find(em => em.id === sm.id);
+          if (!existing) return sm;
+          // 상태는 더 진척된 쪽을 유지, 내용/changes는 비어있는 쪽을 채움
+          const betterStatus = rank(existing.status) > rank(sm.status) ? existing.status : sm.status;
+          return {
+            ...sm,
+            content: (existing.content && (!sm.content || sm.content.length === 0)) ? existing.content : sm.content,
+            status: betterStatus,
+            changes: existing.changes || sm.changes,
+            timestamp: sm.timestamp || existing.timestamp,
+          } as ChatMessage;
+        });
+
+        // 서버에 아직 반영되지 않은 로컬 pending/in_progress 어시스턴트 메시지 보존
+        thread.messages.forEach(localMsg => {
+          if (!serverMap.has(localMsg.id) && localMsg.type === 'assistant' && (localMsg.status === 'pending' || localMsg.status === 'in_progress')) {
+            merged.push(localMsg);
+          }
+        });
+
+        // 타임스탬프 기준 정렬(오름차순)
+        merged.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+        return { ...thread, messages: merged, updatedAt: new Date() };
+      });
+      
+      return {
+        ...state,
+        chatThreads: loadedThreads
       };
     default:
       return state;
@@ -326,8 +397,9 @@ interface AppContextType {
     setLastAppliedChange: (messageId: string, timestamp: Date) => void;
     clearCodeHistory: () => void;
     createNewThread: (title?: string) => void;
-    setCurrentThread: (threadId: string) => void;
+    setCurrentThread: (threadId: string | null) => void;
     addMessageToThread: (threadId: string, message: ChatMessage) => void;
+    updateMessageInThread: (threadId: string, messageId: string, message: ChatMessage) => void;
     deleteThread: (threadId: string) => void;
     updateThreadTitle: (threadId: string, title: string) => void;
     setAiLoading: (loading: boolean) => void;
@@ -335,6 +407,7 @@ interface AppContextType {
     // 서버 연동용 액션들
     loadThreadsFromServer: (threads: ChatThread[]) => void;
     addServerThread: (thread: ChatThread) => void;
+    loadThreadMessages: (threadId: string, messages: ChatMessage[]) => void;
   };
   computed: {
     currentThread: ChatThread | null;
@@ -378,8 +451,9 @@ export function AppProvider({ children }: AppProviderProps) {
     setLastAppliedChange: (messageId: string, timestamp: Date) => dispatch({ type: 'SET_LAST_APPLIED_CHANGE', payload: { messageId, timestamp } }),
     clearCodeHistory: () => dispatch({ type: 'CLEAR_CODE_HISTORY' }),
     createNewThread: (title?: string) => dispatch({ type: 'CREATE_NEW_THREAD', payload: title }),
-    setCurrentThread: (threadId: string) => dispatch({ type: 'SET_CURRENT_THREAD', payload: threadId }),
+    setCurrentThread: (threadId: string | null) => dispatch({ type: 'SET_CURRENT_THREAD', payload: threadId }),
     addMessageToThread: (threadId: string, message: ChatMessage) => dispatch({ type: 'ADD_MESSAGE_TO_THREAD', payload: { threadId, message } }),
+    updateMessageInThread: (threadId: string, messageId: string, message: ChatMessage) => dispatch({ type: 'UPDATE_MESSAGE_IN_THREAD', payload: { threadId, messageId, message } }),
     deleteThread: (threadId: string) => dispatch({ type: 'DELETE_THREAD', payload: threadId }),
     updateThreadTitle: (threadId: string, title: string) => dispatch({ type: 'UPDATE_THREAD_TITLE', payload: { threadId, title } }),
     setAiLoading: (loading: boolean) => dispatch({ type: 'SET_AI_LOADING', payload: loading }),
@@ -387,12 +461,16 @@ export function AppProvider({ children }: AppProviderProps) {
     // 서버 연동용 액션들
     loadThreadsFromServer: (threads: ChatThread[]) => dispatch({ type: 'LOAD_THREADS_FROM_SERVER', payload: threads }),
     addServerThread: (thread: ChatThread) => dispatch({ type: 'ADD_SERVER_THREAD', payload: thread }),
+    loadThreadMessages: (threadId: string, messages: ChatMessage[]) => dispatch({ type: 'LOAD_THREAD_MESSAGES', payload: { threadId, messages } }),
   }), [dispatch]);
 
-  const computed = useMemo(() => ({
-    currentThread: state.currentThreadId ? state.chatThreads.find(thread => thread.id === state.currentThreadId) || null : null,
-    currentMessages: state.currentThreadId ? state.chatThreads.find(thread => thread.id === state.currentThreadId)?.messages || [] : [],
-  }), [state.currentThreadId, state.chatThreads]);
+  const computed = useMemo(() => {
+    const currentThread = state.currentThreadId ? state.chatThreads.find(thread => thread.id === state.currentThreadId) || null : null;
+    return {
+      currentThread,
+      currentMessages: currentThread?.messages || [],
+    };
+  }, [state.currentThreadId, state.chatThreads]);
 
   const contextValue = useMemo(() => ({
     state,

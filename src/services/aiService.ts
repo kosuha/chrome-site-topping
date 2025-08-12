@@ -100,6 +100,26 @@ export interface DeleteThreadResponse {
   message: string;
 }
 
+export interface GetThreadMessagesResponse {
+  status: 'success' | 'error';
+  data: {
+    messages: Array<{
+      id: string;
+      thread_id: string;
+      user_id: string;
+      message: string;
+      message_type: 'user' | 'assistant';
+      created_at: string;
+      metadata?: Record<string, any>;
+      status: string;
+      image_data?: any;
+      cost_usd: number;
+      ai_model?: string;
+    }>;
+  };
+  message: string;
+}
+
 class AIService {
   private baseUrl: string;
 
@@ -108,13 +128,16 @@ class AIService {
     this.baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
   }
 
+  getBaseUrl(): string {
+    return this.baseUrl;
+  }
+
   private async getAuthToken(): Promise<string | null> {
     try {
       // Supabase에서 현재 세션 가져오기
       const { data: { session } } = await supabase.auth.getSession();
       
       if (session?.access_token) {
-        console.log('✅ Supabase session에서 토큰 발견');
         return session.access_token;
       }
 
@@ -125,8 +148,6 @@ class AIService {
         });
       });
 
-      console.log('🔍 Chrome storage의 모든 키:', Object.keys(storageKeys));
-
       // 각 키의 내용을 자세히 확인
       const potentialKeys = Object.keys(storageKeys).filter(key => 
         key.includes('supabase') || 
@@ -136,35 +157,27 @@ class AIService {
         key.startsWith('supabase.auth.token')
       );
 
-      console.log('🔍 인증 관련 키들:', potentialKeys);
-
       for (const key of potentialKeys) {
         const value = storageKeys[key];
-        console.log(`📝 ${key}:`, typeof value, value);
         
         if (typeof value === 'string') {
           try {
             const parsed = JSON.parse(value);
-            console.log(`📋 ${key} 파싱된 내용:`, parsed);
             
             if (parsed?.access_token) {
-              console.log('✅ 토큰 발견:', parsed.access_token.substring(0, 20) + '...');
               return parsed.access_token;
             }
           } catch (e) {
             // JSON이 아닌 경우 - 토큰 자체일 수도 있음
             if (value.length > 50 && value.includes('.')) { // JWT 토큰 형태
-              console.log('✅ JWT 토큰으로 추정:', value.substring(0, 20) + '...');
               return value;
             }
           }
         } else if (typeof value === 'object' && value?.access_token) {
-          console.log('✅ 객체에서 토큰 발견');
           return value.access_token;
         }
       }
 
-      console.log('❌ 인증 토큰을 찾을 수 없음');
       return null;
     } catch (error) {
       console.error('❌ 인증 토큰 가져오기 실패:', error);
@@ -315,6 +328,11 @@ class AIService {
     return await this.makeRequest<DeleteThreadResponse>(`/threads/${threadId}`, 'DELETE');
   }
 
+  // 스레드 메시지 조회
+  async getThreadMessages(threadId: string): Promise<GetThreadMessagesResponse> {
+    return await this.makeRequest<GetThreadMessagesResponse>(`/messages/${threadId}`);
+  }
+
   // 현재 도메인의 사이트 코드 가져오기 (배포용)
   async getCurrentSiteCode(): Promise<string | null> {
     try {
@@ -336,7 +354,6 @@ class AIService {
         });
 
         if (response.success && response.domain) {
-          console.log('Background script로부터 도메인 획득:', response.domain);
           return response.domain;
         } else {
           console.warn('Background script에서 도메인 가져오기 실패:', response.error);
@@ -356,7 +373,6 @@ class AIService {
     try {
       if (typeof window !== 'undefined' && window.location) {
         const domain = window.location.hostname;
-        console.log('Fallback: 웹 환경에서 현재 도메인 사용:', domain);
         return domain;
       }
       return null;

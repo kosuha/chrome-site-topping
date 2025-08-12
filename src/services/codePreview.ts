@@ -177,7 +177,7 @@ async function applyJSCode(js: string): Promise<void> {
           code: js
         });
         
-        console.log('[Site Topping] JavaScript execution via background script:', response);
+        
         
         if (response && response.success) {
           // 성공적으로 실행됨
@@ -190,7 +190,7 @@ async function applyJSCode(js: string): Promise<void> {
     }
     
     // Background script 실행이 실패하거나 불가능한 경우 Content Script에서 직접 시도
-    console.log('[Site Topping] Attempting direct execution in content script');
+    
     await contentScriptExecution(js);
     createExecutionMarker();
     
@@ -213,7 +213,7 @@ async function contentScriptExecution(js: string): Promise<void> {
           window.addEventListener('message', function(event) {
             if (event.source === window && event.data.type === 'SITE_TOPPING_EXECUTE') {
               try {
-                console.log('[Page Context] Executing code:', event.data.code.substring(0, 100) + '...');
+                
                 eval(event.data.code);
               } catch (e) {
                 console.error('[Page Context] Execution error:', e);
@@ -233,7 +233,7 @@ async function contentScriptExecution(js: string): Promise<void> {
       code: js
     }, '*');
     
-    console.log('[Site Topping] Code sent via postMessage');
+    
     return;
   } catch (postMessageError) {
     console.error('[Site Topping] postMessage method failed:', postMessageError);
@@ -261,8 +261,8 @@ async function advancedFallbackExecution(js: string): Promise<void> {
     const worker = new Worker(URL.createObjectURL(blob));
     
     return new Promise((resolve) => {
-      worker.onmessage = (e) => {
-        console.log('[Site Topping] Web Worker execution result:', e.data);
+      worker.onmessage = (_: MessageEvent) => {
+
         worker.terminate();
         resolve();
       };

@@ -60,17 +60,13 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 });
 
 // Content script에서 오는 JavaScript 실행 요청 처리
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log('[Background] Received message:', message, 'from tab:', sender.tab?.id);
-    
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {    
     if (message.type === 'EXECUTE_SCRIPT' && sender.tab?.id) {
         executeScriptInTab(sender.tab.id, message.code)
             .then((result) => {
-                console.log('[Background] Script execution completed:', result);
                 sendResponse({ success: true, result });
             })
             .catch((error) => {
-                console.error('[Background] Script execution failed:', error);
                 sendResponse({ success: false, error: error.message });
             });
         return true; // 비동기 응답을 위해 true 반환
@@ -80,11 +76,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'GET_CURRENT_DOMAIN' && sender.tab?.id) {
         getCurrentDomain(sender.tab.id)
             .then((domain) => {
-                console.log('[Background] Current domain:', domain);
                 sendResponse({ success: true, domain });
             })
             .catch((error) => {
-                console.error('[Background] Failed to get current domain:', error);
                 sendResponse({ success: false, error: error.message });
             });
         return true; // 비동기 응답을 위해 true 반환
@@ -120,15 +114,12 @@ async function getCurrentDomain(tabId: number): Promise<string | null> {
 }
 
 async function executeScriptInTab(tabId: number, code: string): Promise<any> {
-    console.log('[Background] Executing script in tab:', tabId, 'Code length:', code.length);
-    
     // Method 1: World MAIN을 사용해서 페이지 메인 컨텍스트에서 실행 (가장 강력)
     try {
         const result = await chrome.scripting.executeScript({
             target: { tabId },
             world: 'MAIN', // 페이지의 메인 컨텍스트에서 실행 (CSP 우회)
             func: (jsCode: string) => {
-                console.log('[MAIN World] Executing code:', jsCode.substring(0, 100) + '...');
                 try {
                     // 직접 eval 실행 (MAIN world에서는 CSP 영향 받지 않음)
                     return eval(jsCode);
@@ -142,7 +133,6 @@ async function executeScriptInTab(tabId: number, code: string): Promise<any> {
             args: [code]
         });
         
-        console.log('[Background] MAIN world execution successful:', result);
         return result;
     } catch (mainWorldError) {
         console.error('[Background] MAIN world execution failed:', mainWorldError);
@@ -153,7 +143,6 @@ async function executeScriptInTab(tabId: number, code: string): Promise<any> {
                 target: { tabId },
                 world: 'ISOLATED', 
                 func: (jsCode: string) => {
-                    console.log('[ISOLATED World] Attempting DOM injection');
                     
                     // 방법 1: iframe의 contentWindow 사용
                     try {
@@ -233,7 +222,6 @@ async function executeScriptInTab(tabId: number, code: string): Promise<any> {
                 args: [code]
             });
             
-            console.log('[Background] ISOLATED world execution result:', result);
             return result;
         } catch (isolatedError) {
             console.error('[Background] All execution methods failed:', isolatedError);
