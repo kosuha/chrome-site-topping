@@ -19,6 +19,18 @@
     /* box-shadow: -2px 0 12px rgba(0, 0, 0, 0.1); */
 }
 
+/* 반응형 breakpoint: 화면 가로가 768px 이하일 때 */
+@media (max-width: 768px) {
+    .sidePanel {
+        width: calc(100vw - 20px);
+        min-width: calc(100vw - 20px);
+        right: calc(-100vw + 20px);
+        max-width: none;
+        margin: 10px;
+        border-radius: 20px;
+    }
+}
+
 .open {
     right: 0;
 }
@@ -34,6 +46,13 @@
     cursor: ew-resize;
     z-index: 20;
     transition: all 0.3s ease;
+}
+
+/* 반응형: 모바일에서 리사이즈 핸들 숨김 */
+@media (max-width: 768px) {
+    .resizeHandle {
+        display: none;
+    }
 }
 
 /* Panel Header - Clean white card style - Vertical layout on left */
@@ -62,11 +81,40 @@
     border: 1px solid #e0e0e0;
 }
 
+/* 반응형: 화면 가로가 768px 이하일 때 헤더를 상단으로 이동 */
+@media (max-width: 768px) {
+    .panelHeader {
+        position: absolute;
+        left: 10px;
+        top: 10px;
+        right: 10px;
+        width: calc(100% - 20px) !important;
+        min-width: auto;
+        max-width: none;
+        height: 60px;
+        border-radius: 16px;
+        flex-direction: row;
+        justify-content: space-between;
+        padding: 8px 20px;
+        margin-top: 0;
+        gap: 8px;
+    }
+}
+
 .divider {
     width: 100%;
     height: 1px;
     background: #e0e0e0;
     margin: 8px 0;
+}
+
+/* 반응형: 모바일에서 구분선을 세로로 변경 */
+@media (max-width: 768px) {
+    .divider {
+        width: 1px;
+        height: 24px;
+        margin: 0 8px;
+    }
 }
 
 .title {
@@ -127,6 +175,17 @@
     justify-content: center;
     gap: 8px;
     width: 100%;
+}
+
+/* 반응형: 모바일에서 탭바를 가로로 변경 */
+@media (max-width: 768px) {
+    .tabBar {
+        flex-direction: row;
+        justify-content: center;
+        align-items: center;
+        gap: 8px;
+        width: auto;
+    }
 }
 
 .tabBtn {
@@ -239,6 +298,16 @@
     box-sizing: border-box;
 }
 
+/* 반응형: 모바일에서 콘텐츠 영역을 상단 헤더 아래로 이동 */
+@media (max-width: 768px) {
+    .panelContent {
+        height: calc(100vh - 100px);
+        margin-left: 0;
+        margin-top: 80px;
+        padding: 10px 10px 10px 10px;
+    }
+}
+
 /* Tab Content */
 .tabContent {
     display: none;
@@ -252,6 +321,16 @@
     box-sizing: border-box;
     border: 1px solid #e0e0e0;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* 반응형: 모바일에서 탭 콘텐츠 높이 조정 */
+@media (max-width: 768px) {
+    .tabContent {
+        height: calc(100vh - 120px);
+        padding: 20px 15px 15px 15px;
+        border-radius: 16px;
+        margin: 0;
+    }
 }
 
 .tabContent.active {
@@ -310,6 +389,18 @@
     font-weight: 500;
     z-index: 10;
     animation: slideInStatus 0.3s ease;
+}
+
+/* 반응형: 모바일에서 상태 메시지 위치 조정 */
+@media (max-width: 768px) {
+    .statusMessage {
+        left: 20px;
+        top: 90px;
+        right: 20px;
+        max-width: none;
+        width: calc(100% - 40px);
+        text-align: center;
+    }
 }
 
 .statusMessage.success {

@@ -180,7 +180,7 @@ function setExtensionNonInteractive(enable: boolean) {
     // 투명도/포인터 비활성화 적용 (!important 로 우선순위 높임)
     root.style.setProperty('pointer-events', 'none', 'important');
     root.style.setProperty('opacity', '0.3', 'important');
-    root.style.transition = 'opacity 120ms ease';
+    root.style.transition = 'opacity 500ms ease';
   } else {
     // 원복
     root.style.removeProperty('pointer-events');
