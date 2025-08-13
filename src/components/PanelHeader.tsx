@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import styles from '../styles/SidePanel.module.css';
 import { TABS } from '../utils/constants';
 import { useAppContext } from '../contexts/AppContext';
-import { ArrowRightFromLine, BotMessageSquare, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigRight, Crosshair, CodeXml, Loader2 } from 'lucide-react';
+import { ArrowRightFromLine, BotMessageSquare, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigRight, Crosshair, CodeXml, Loader2, Check, X } from 'lucide-react';
 import { applyCodeToPage, disablePreview } from '../services/codePreview';
 import { useDebounce } from '../hooks/useDebounce';
 import { SiteIntegrationService } from '../services/siteIntegration';
@@ -16,7 +16,8 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
   const { state, actions } = useAppContext();
   const { activeTab } = state;
   const [isDeploying, setIsDeploying] = useState(false);
-  const [deployStatus, setDeployStatus] = useState<{ type: 'success' | 'error' | null; message: string | null }>({ type: null, message: null });
+  const [deploySuccess, setDeploySuccess] = useState(false);
+  const [deployFailed, setDeployFailed] = useState(false);
   const siteService = SiteIntegrationService.getInstance();
   
   // 요소 선택(인스펙터) 상태
@@ -24,6 +25,10 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
   
   // 프리뷰 토글 상태 보호
   const [isToggling, setIsToggling] = useState(false);
+  
+  // 히스토리 이동 로딩 상태
+  const [isNavigatingBack, setIsNavigatingBack] = useState(false);
+  const [isNavigatingForward, setIsNavigatingForward] = useState(false);
   
   // 코드 변경을 500ms 디바운스
   const debouncedCSS = useDebounce(state.editorCode.css, 500);
@@ -38,7 +43,8 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
 
     try {
       setIsDeploying(true);
-      setDeployStatus({ type: null, message: null });
+      setDeploySuccess(false);
+      setDeployFailed(false);
 
       // 현재 도메인에 해당하는 사이트 찾기
       const sites = await siteService.getUserSites();
@@ -46,18 +52,14 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
       const currentSite = Array.isArray(sites) ? sites.find((site: any) => site.domain === currentDomain) : null;
 
       if (!currentSite) {
-        setDeployStatus({ 
-          type: 'error', 
-          message: `현재 도메인 ${currentDomain}이 등록되지 않았습니다. UserTab에서 사이트를 먼저 등록해주세요.` 
-        });
+        console.error(`현재 도메인 ${currentDomain}이 등록되지 않았습니다.`);
+        setDeployFailed(true);
         return;
       }
 
       if (!currentSite.site_code) {
-        setDeployStatus({ 
-          type: 'error', 
-          message: '사이트 코드가 없습니다. 사이트 등록을 다시 확인해주세요.' 
-        });
+        console.error('사이트 코드가 없습니다.');
+        setDeployFailed(true);
         return;
       }
 
@@ -68,17 +70,11 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
       // 서버에 배포 (CSS와 JS 분리)
       await siteService.deployScript(currentSite.site_code, cssContent, jsContent);
       
-      setDeployStatus({ 
-        type: 'success', 
-        message: `${currentSite.site_name || currentSite.domain}에 성공적으로 배포되었습니다!` 
-      });
+      setDeploySuccess(true);
 
     } catch (error) {
       console.error('배포 실패:', error);
-      setDeployStatus({ 
-        type: 'error', 
-        message: error instanceof Error ? error.message : '배포 중 오류가 발생했습니다.' 
-      });
+      setDeployFailed(true);
     } finally {
       setIsDeploying(false);
     }
@@ -123,15 +119,25 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
     }
   }, [debouncedCSS, debouncedJS, state.isPreviewMode]);
 
-  // 배포 상태 메시지를 3초 후 자동으로 숨김
+  // 배포 성공 아이콘을 2초 후 자동으로 숨김
   useEffect(() => {
-    if (deployStatus.type) {
+    if (deploySuccess) {
       const timer = setTimeout(() => {
-        setDeployStatus({ type: null, message: null });
-      }, 3000);
+        setDeploySuccess(false);
+      }, 2000);
       return () => clearTimeout(timer);
     }
-  }, [deployStatus.type]);
+  }, [deploySuccess]);
+
+  // 배포 실패 아이콘을 2초 후 자동으로 숨김
+  useEffect(() => {
+    if (deployFailed) {
+      const timer = setTimeout(() => {
+        setDeployFailed(false);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [deployFailed]);
 
   // 요소 선택 모드 메시지 동기화 및 언마운트 정리
   useEffect(() => {
@@ -186,25 +192,59 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
           disabled={isDeploying}
           title={isDeploying ? "배포 중..." : "배포"}
         >
-          <Upload size={24} />
+          {deploySuccess ? (
+            <Check size={24} className={styles.successCheck} />
+          ) : deployFailed ? (
+            <X size={24} className={styles.failedX} />
+          ) : (
+            <Upload size={24} />
+          )}
         </button>
 
         {/* 전역 히스토리 제어 버튼 */}
         <button
-          className={styles.tabBtn}
-          onClick={() => actions.goBackHistory()}
-          disabled={state.currentHistoryIndex <= 0}
-          title="코드 변경 이전으로"
+          className={`${styles.tabBtn} ${isNavigatingBack ? styles.loading : ''}`}
+          onClick={async () => {
+            if (isNavigatingBack || isNavigatingForward) return;
+            setIsNavigatingBack(true);
+            try {
+              actions.goBackHistory();
+              // 짧은 딜레이로 시각적 피드백 제공
+              await new Promise(resolve => setTimeout(resolve, 500));
+            } finally {
+              setIsNavigatingBack(false);
+            }
+          }}
+          disabled={state.currentHistoryIndex <= 0 || isNavigatingBack || isNavigatingForward}
+          title={isNavigatingBack ? "이동 중..." : "코드 변경 이전으로"}
         >
-          <ArrowBigLeft size={24} />
+          {isNavigatingBack ? (
+            <Loader2 size={24} className={styles.spinner} />
+          ) : (
+            <ArrowBigLeft size={24} />
+          )}
         </button>
         <button
           className={styles.tabBtn}
-          onClick={() => actions.goForwardHistory()}
-          disabled={state.currentHistoryIndex >= state.codeHistoryStack.length - 1}
-          title="코드 변경 이후로"
+          onClick={async () => {
+            if (isNavigatingBack || isNavigatingForward) return;
+            setIsNavigatingForward(true);
+            try {
+              actions.goForwardHistory();
+              // 짧은 딜레이로 시각적 피드백 제공
+              await new Promise(resolve => setTimeout(resolve, 500));
+            } finally {
+              setIsNavigatingForward(false);
+            }
+          }}
+          disabled={state.currentHistoryIndex >= state.codeHistoryStack.length - 1 || isNavigatingBack || isNavigatingForward}
+          title={isNavigatingForward ? "이동 중..." : "코드 변경 이후로"}
         >
-          <ArrowBigRight size={24} />
+          {isNavigatingForward ? (
+            <Loader2 size={24} className={styles.spinner} />
+          ) : (
+            <ArrowBigRight size={24} />
+          )}
         </button>
       </div>
 
@@ -236,12 +276,6 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
         </button>
       </div>
 
-      {/* 배포 상태 메시지 */}
-      {deployStatus.type && (
-        <div className={`${styles.statusMessage} ${styles[deployStatus.type]}`}>
-          {deployStatus.message}
-        </div>
-      )}
     </div>
   );
 }
