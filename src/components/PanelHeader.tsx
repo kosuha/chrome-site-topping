@@ -3,7 +3,7 @@ import styles from '../styles/SidePanel.module.css';
 import { TABS } from '../utils/constants';
 import { useAppContext } from '../contexts/AppContext';
 import { ArrowRightFromLine, BotMessageSquare, Code, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigRight } from 'lucide-react';
-import { applyCodeToPage, removeCodeFromPage } from '../services/codePreview';
+import { applyCodeToPage, disablePreview } from '../services/codePreview';
 import { useDebounce } from '../hooks/useDebounce';
 import { SiteIntegrationService } from '../services/siteIntegration';
 
@@ -79,7 +79,7 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
 
   const handlePreviewToggle = async () => {
     if (state.isPreviewMode) {
-      removeCodeFromPage();
+      disablePreview();
     } else {
       await applyCodeToPage(state.editorCode.css, state.editorCode.javascript);
     }
