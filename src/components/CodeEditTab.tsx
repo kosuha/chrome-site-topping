@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { css } from '@codemirror/lang-css';
@@ -12,6 +12,27 @@ type Language = 'javascript' | 'css';
 export default function CodeEditTab() {
   const { state, actions } = useAppContext();
   const [language, setLanguage] = useState<Language>('javascript');
+
+  // 요소 선택 결과를 활성 탭이 Code일 때 코드 에디터에 삽입
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== window || !e.data) return;
+      const data = e.data as any;
+      if (data.type === 'SITE_TOPPING_ELEMENT_PICKED' && state.activeTab === 'code') {
+        const selector = String(data.selector || '').trim();
+        if (!selector) return;
+        if (language === 'css') {
+          const snippet = `\n/* picked */\n${selector} {\n  /* TODO: style here */\n}\n`;
+          actions.setEditorCode('css', (state.editorCode.css || '') + snippet);
+        } else {
+          const snippet = `\n// picked\nconst el = document.querySelector(${JSON.stringify(selector)});\nif (el) {\n  // TODO: manipulate element\n}\n`;
+          actions.setEditorCode('javascript', (state.editorCode.javascript || '') + snippet);
+        }
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [state.activeTab, language, state.editorCode.css, state.editorCode.javascript, actions]);
 
   const handleLanguageChange = (newLanguage: Language) => {
     setLanguage(newLanguage);

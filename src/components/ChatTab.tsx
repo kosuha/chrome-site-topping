@@ -16,6 +16,29 @@ export default function ChatTab() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLDivElement>(null);
 
+  // SITE_TOPPING_ELEMENT_PICKED 수신 -> 활성 탭이 Chat이면 입력창에 선택자 추가
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== window || !e.data) return;
+      const data = e.data as any;
+      if (data.type === 'SITE_TOPPING_ELEMENT_PICKED' && state.activeTab === 'chat') {
+        const selector = String(data.selector || '');
+        if (!selector) return;
+        setInputValue(prev => {
+          const sep = prev && !prev.endsWith(' ') ? ' ' : '';
+          const next = `${prev}${sep}${selector}`.slice(0, 2000);
+          // contentEditable 동기화
+          if (textareaRef.current) textareaRef.current.textContent = next;
+          return next;
+        });
+        // 포커스 이동
+        textareaRef.current?.focus();
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [state.activeTab]);
+
   // SSE 연결 훅
   useThreadSSE();
 

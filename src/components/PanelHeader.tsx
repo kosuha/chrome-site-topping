@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import styles from '../styles/SidePanel.module.css';
 import { TABS } from '../utils/constants';
 import { useAppContext } from '../contexts/AppContext';
-import { ArrowRightFromLine, BotMessageSquare, Code, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigRight } from 'lucide-react';
+import { ArrowRightFromLine, BotMessageSquare, Code, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigRight, Crosshair } from 'lucide-react';
 import { applyCodeToPage, disablePreview } from '../services/codePreview';
 import { useDebounce } from '../hooks/useDebounce';
 import { SiteIntegrationService } from '../services/siteIntegration';
+import { enableElementInspector, disableElementInspector, isElementInspectorActive } from '../services/elementInspector';
 
 interface PanelHeaderProps {
   onClose: () => void;
@@ -17,6 +18,9 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployStatus, setDeployStatus] = useState<{ type: 'success' | 'error' | null; message: string | null }>({ type: null, message: null });
   const siteService = SiteIntegrationService.getInstance();
+  
+  // 요소 선택(인스펙터) 상태
+  const [isPicking, setIsPicking] = useState(false);
   
   // 코드 변경을 500ms 디바운스
   const debouncedCSS = useDebounce(state.editorCode.css, 500);
@@ -86,6 +90,18 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
     actions.togglePreviewMode();
   };
 
+  // 요소 선택 토글
+  const handlePickerToggle = () => {
+    const nowActive = isElementInspectorActive();
+    if (nowActive) {
+      disableElementInspector();
+      setIsPicking(false);
+    } else {
+      enableElementInspector();
+      setIsPicking(true);
+    }
+  };
+
   // 프리뷰 모드일 때 디바운스된 코드 변경시 적용
   useEffect(() => {
     if (state.isPreviewMode) {
@@ -103,10 +119,31 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
     }
   }, [deployStatus.type]);
 
+  // 요소 선택 모드 메시지 동기화 및 언마운트 정리
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.source !== window || !e.data) return;
+      const data = e.data as any;
+      if (data.type === 'SITE_TOPPING_PICKER_START') setIsPicking(true);
+      if (data.type === 'SITE_TOPPING_PICKER_STOP' || data.type === 'SITE_TOPPING_ELEMENT_PICKED') setIsPicking(false);
+    };
+    window.addEventListener('message', handler);
+    return () => {
+      window.removeEventListener('message', handler);
+      disableElementInspector();
+    };
+  }, []);
+
+  const handleClose = () => {
+    // 패널 닫을 때 인스펙터 종료
+    disableElementInspector();
+    onClose();
+  };
+
   return (
     <div className={styles.panelHeader}>
       <div className={styles.tabBar}>
-        <button className={styles.tabBtn} onClick={onClose}>
+        <button className={styles.tabBtn} onClick={handleClose}>
           <ArrowRightFromLine size={24} />
         </button>
         <button 
@@ -115,6 +152,14 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
           title={state.isPreviewMode ? "미리보기 숨기기" : "미리보기 보기"}
         >
           {state.isPreviewMode ? <Eye size={24} /> : <EyeClosed size={24} />}
+        </button>
+        {/* 요소 선택 토글 */}
+        <button
+          className={`${styles.tabBtn} ${isPicking ? styles.activePreview : ''}`}
+          onClick={handlePickerToggle}
+          title={isPicking ? '요소 선택 종료(Esc)' : '요소 선택'}
+        >
+          <Crosshair size={24} />
         </button>
         <button 
           className={`${styles.tabBtn} ${isDeploying ? styles.loading : ''}`}
