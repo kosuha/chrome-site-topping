@@ -406,16 +406,32 @@ function stopPreviewObserverAndCleanup(): void {
   }
 }
 
-export async function applyCodeToPage(css: string, js: string): Promise<void> {
-  // Ensure we have a clean baseline of the page, then restore to it before applying new code
-  captureBaselineIfNeeded();
-  // Clean any previous preview artifacts tracked via observer
-  stopPreviewObserverAndCleanup();
-  // Also clean any stray head elements not in baseline
+function cleanupExtensionCodeOnly(): void {
+  // 1. Remove extension-applied CSS/JS elements
+  removeCodeFromPage();
+  
+  // 2. Clean head elements not in baseline (extension-added)
   cleanupHeadExtras();
-  restoreBaseline();
-  // Start tracking nodes added during this preview session (to clean head/others on disable)
+  
+  // 3. Clean up tracked elements from previous preview session
+  stopPreviewObserverAndCleanup();
+  
+  // 4. Notify page context to clean up timers/listeners
+  cleanupJavaScriptEffects();
+  
+  // Note: We don't call restoreBaseline() here to preserve user-created elements
+}
+
+export async function applyCodeToPage(css: string, js: string): Promise<void> {
+  // Ensure we have a clean baseline of the page for future full restore
+  captureBaselineIfNeeded();
+  
+  // Clean only extension code, preserve user-created elements
+  cleanupExtensionCodeOnly();
+  
+  // Start tracking nodes added during this preview session
   startPreviewObserver();
+  
   // Notify page context that a new preview session starts
   try { window.postMessage({ type: 'SITE_TOPPING_PREVIEW_START' }, '*'); } catch {}
 
