@@ -5,7 +5,7 @@ import { css } from '@codemirror/lang-css';
 import styles from '../styles/CodeEditTab.module.css';
 import { xcodeLight } from '@uiw/codemirror-theme-xcode';
 import { useAppContext } from '../contexts/AppContext';
-import { Save } from 'lucide-react';
+import { Save, Loader2, Check, X } from 'lucide-react';
 import { EditorView } from '@codemirror/view';
 
 // CodeMirror 배경 투명 테마 (글래스 효과를 컨테이너에서 보이도록)
@@ -20,6 +20,9 @@ type Language = 'javascript' | 'css';
 export default function CodeEditTab() {
   const { state, actions } = useAppContext();
   const [language, setLanguage] = useState<Language>('javascript');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
 
   // 요소 선택 결과를 활성 탭이 Code일 때 코드 에디터에 삽입
   useEffect(() => {
@@ -42,6 +45,26 @@ export default function CodeEditTab() {
     return () => window.removeEventListener('message', onMessage);
   }, [state.activeTab, language, state.editorCode.css, state.editorCode.javascript, actions]);
 
+  // 저장 성공 아이콘을 2초 후 자동으로 숨김
+  useEffect(() => {
+    if (saveSuccess) {
+      const timer = setTimeout(() => {
+        setSaveSuccess(false);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [saveSuccess]);
+
+  // 저장 실패 아이콘을 2초 후 자동으로 숨김
+  useEffect(() => {
+    if (saveFailed) {
+      const timer = setTimeout(() => {
+        setSaveFailed(false);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [saveFailed]);
+
   const handleLanguageChange = (newLanguage: Language) => {
     setLanguage(newLanguage);
   };
@@ -50,14 +73,33 @@ export default function CodeEditTab() {
     actions.setEditorCode(language, value || '');
   };
 
-  const handleSave = () => {
-    // 현재 코드 상태를 히스토리에 푸시
-    actions.pushCodeHistory({
-      javascript: state.editorCode.javascript,
-      css: state.editorCode.css,
-      description: '사용자 저장',
-      isSuccessful: true,
-    });
+  const handleSave = async () => {
+    if (isSaving) return;
+
+    try {
+      setIsSaving(true);
+      setSaveSuccess(false);
+      setSaveFailed(false);
+
+      // 500ms 최소 로딩 시간
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // 현재 코드 상태를 히스토리에 푸시
+      actions.pushCodeHistory({
+        javascript: state.editorCode.javascript,
+        css: state.editorCode.css,
+        description: '사용자 저장',
+        isSuccessful: true,
+      });
+      
+      setSaveSuccess(true);
+
+    } catch (error) {
+      console.error('저장 실패:', error);
+      setSaveFailed(true);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -91,8 +133,22 @@ export default function CodeEditTab() {
             </div>
 
             <div className={styles.actionButtons}>
-              <button className={styles.saveButton} onClick={handleSave} title="저장 및 히스토리 추가">
-                <Save size={14} /> 저장
+              <button 
+                className={`${styles.saveButton} ${isSaving ? styles.loading : ''}`}
+                onClick={handleSave} 
+                disabled={isSaving}
+                title={isSaving ? "저장 중..." : "저장 및 히스토리 추가"}
+              >
+                {isSaving ? (
+                  <Loader2 size={14} className={styles.spinner} />
+                ) : saveSuccess ? (
+                  <Check size={14} className={styles.successIcon} />
+                ) : saveFailed ? (
+                  <X size={14} className={styles.failedIcon} />
+                ) : (
+                  <Save size={14} />
+                )}
+                저장
               </button>
             </div>
           </div>

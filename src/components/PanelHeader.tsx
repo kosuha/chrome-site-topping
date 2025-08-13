@@ -80,6 +80,7 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
     }
   };
 
+
   const handlePreviewToggle = async () => {
     // 토글이 진행 중이면 중복 실행 방지
     if (isToggling) return;
@@ -138,6 +139,7 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
       return () => clearTimeout(timer);
     }
   }, [deployFailed]);
+
 
   // 요소 선택 모드 메시지 동기화 및 언마운트 정리
   useEffect(() => {

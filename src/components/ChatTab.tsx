@@ -313,7 +313,7 @@ export default function ChatTab() {
                           }}
                           className={styles.imageRemoveButton}
                         >
-                          <X size={12} />
+                          <X size={14} />
                         </button>
                       </div>
                     ))}
