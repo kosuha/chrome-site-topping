@@ -5,6 +5,7 @@ let active = false;
 let boxEl: HTMLDivElement | null = null;
 let labelEl: HTMLDivElement | null = null;
 let lastTarget: Element | null = null;
+let isInteractiveMode = false;
 
 // 기존 루트 스타일 복원용 저장소
 let prevRootPointerEvents: string | null = null;
@@ -141,7 +142,7 @@ function pickElementAt(x: number, y: number): Element | null {
 }
 
 function onMouseMove(e: MouseEvent) {
-  if (!active) return;
+  if (!active || isInteractiveMode) return;
   const target = pickElementAt(e.clientX, e.clientY);
   if (!target) return;
   if (target === lastTarget) return;
@@ -150,7 +151,7 @@ function onMouseMove(e: MouseEvent) {
 }
 
 function onClick(e: MouseEvent) {
-  if (!active) return;
+  if (!active || isInteractiveMode) return;
   e.preventDefault();
   e.stopPropagation();
   const target = pickElementAt(e.clientX, e.clientY);
@@ -169,6 +170,69 @@ function onKeyDown(e: KeyboardEvent) {
   }
 }
 
+function onKeyUp(e: KeyboardEvent) {
+  if (!active) return;
+  if (e.key === 'Shift') {
+    setInteractiveMode(false);
+  }
+}
+
+function onKeyDownShift(e: KeyboardEvent) {
+  if (!active) return;
+  if (e.key === 'Shift') {
+    setInteractiveMode(true);
+  }
+}
+
+function setInteractiveMode(enable: boolean) {
+  if (isInteractiveMode === enable) return;
+  isInteractiveMode = enable;
+  
+  if (enable) {
+    // 상호작용 모드: 오버레이 숨기고 페이지와 상호작용 가능하게 (익스텐션은 투명 유지)
+    if (boxEl) boxEl.style.display = 'none';
+    if (labelEl) labelEl.style.display = 'none';
+    updateInteractiveModeIndicator(true);
+  } else {
+    // 인스펙터 모드: 오버레이 표시하고 인스펙터 활성화 (익스텐션은 투명 유지)
+    if (boxEl) boxEl.style.display = 'block';
+    if (labelEl) labelEl.style.display = 'block';
+    updateInteractiveModeIndicator(false);
+    // 현재 마우스 위치의 요소로 다시 업데이트
+    if (lastTarget) updateUIFor(lastTarget);
+  }
+}
+
+function updateInteractiveModeIndicator(show: boolean) {
+  let indicator = document.getElementById(`${EXT}interactive-indicator`);
+  
+  if (show && !indicator) {
+    indicator = document.createElement('div');
+    indicator.id = `${EXT}interactive-indicator`;
+    Object.assign(indicator.style, {
+      position: 'fixed',
+      top: '20px',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      padding: '8px 16px',
+      background: '#10B981',
+      color: 'white',
+      borderRadius: '20px',
+      fontSize: '14px',
+      fontWeight: '500',
+      fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      zIndex: '2147483647',
+      pointerEvents: 'none',
+      boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
+      transition: 'all 0.2s ease'
+    } as CSSStyleDeclaration);
+    indicator.textContent = '상호작용 모드 (Shift 해제 시 인스펙터 모드)';
+    document.body.appendChild(indicator);
+  } else if (!show && indicator) {
+    indicator.remove();
+  }
+}
+
 function setExtensionNonInteractive(enable: boolean) {
   const root = document.getElementById(ROOT_ID) as HTMLElement | null;
   if (!root) return;
@@ -179,7 +243,7 @@ function setExtensionNonInteractive(enable: boolean) {
     prevRootTransition = root.getAttribute('style')?.includes('transition') ? root.style.transition : null;
     // 투명도/포인터 비활성화 적용 (!important 로 우선순위 높임)
     root.style.setProperty('pointer-events', 'none', 'important');
-    root.style.setProperty('opacity', '0.3', 'important');
+    root.style.setProperty('opacity', '0.0', 'important');
     root.style.transition = 'opacity 500ms ease';
   } else {
     // 원복
@@ -195,11 +259,14 @@ function setExtensionNonInteractive(enable: boolean) {
 export function enableElementInspector() {
   if (active) return;
   active = true;
+  isInteractiveMode = false;
   ensureOverlay();
   setExtensionNonInteractive(true);
   document.addEventListener('mousemove', onMouseMove, true);
   document.addEventListener('click', onClick, true);
   document.addEventListener('keydown', onKeyDown, true);
+  document.addEventListener('keydown', onKeyDownShift, true);
+  document.addEventListener('keyup', onKeyUp, true);
   try {
     window.postMessage({ type: 'SITE_TOPPING_PICKER_START' }, '*');
   } catch {}
@@ -208,11 +275,15 @@ export function enableElementInspector() {
 export function disableElementInspector() {
   if (!active) return;
   active = false;
+  isInteractiveMode = false;
   document.removeEventListener('mousemove', onMouseMove, true);
   document.removeEventListener('click', onClick, true);
   document.removeEventListener('keydown', onKeyDown, true);
+  document.removeEventListener('keydown', onKeyDownShift, true);
+  document.removeEventListener('keyup', onKeyUp, true);
   clearOverlay();
   setExtensionNonInteractive(false);
+  updateInteractiveModeIndicator(false);
   lastTarget = null;
   try {
     window.postMessage({ type: 'SITE_TOPPING_PICKER_STOP' }, '*');
