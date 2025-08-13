@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import styles from '../styles/SidePanel.module.css';
 import { TABS } from '../utils/constants';
 import { useAppContext } from '../contexts/AppContext';
-import { ArrowRightFromLine, BotMessageSquare, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigRight, Crosshair, CodeXml } from 'lucide-react';
+import { ArrowRightFromLine, BotMessageSquare, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigRight, Crosshair, CodeXml, Loader2 } from 'lucide-react';
 import { applyCodeToPage, disablePreview } from '../services/codePreview';
 import { useDebounce } from '../hooks/useDebounce';
 import { SiteIntegrationService } from '../services/siteIntegration';
@@ -21,6 +21,9 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
   
   // 요소 선택(인스펙터) 상태
   const [isPicking, setIsPicking] = useState(false);
+  
+  // 프리뷰 토글 상태 보호
+  const [isToggling, setIsToggling] = useState(false);
   
   // 코드 변경을 500ms 디바운스
   const debouncedCSS = useDebounce(state.editorCode.css, 500);
@@ -82,12 +85,23 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
   };
 
   const handlePreviewToggle = async () => {
-    if (state.isPreviewMode) {
-      disablePreview();
-    } else {
-      await applyCodeToPage(state.editorCode.css, state.editorCode.javascript);
+    // 토글이 진행 중이면 중복 실행 방지
+    if (isToggling) return;
+    
+    setIsToggling(true);
+    
+    try {
+      if (state.isPreviewMode) {
+        disablePreview();
+        // DOM 복구 완료까지 충분한 대기
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } else {
+        await applyCodeToPage(state.editorCode.css, state.editorCode.javascript);
+      }
+      actions.togglePreviewMode();
+    } finally {
+      setIsToggling(false);
     }
-    actions.togglePreviewMode();
   };
 
   // 요소 선택 토글
@@ -147,11 +161,16 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
           <ArrowRightFromLine size={24} />
         </button>
         <button 
-          className={`${styles.tabBtn} ${state.isPreviewMode ? styles.activePreview : ''}`}
+          className={`${styles.tabBtn} ${state.isPreviewMode ? styles.activePreview : ''} ${isToggling ? styles.loading : ''}`}
           onClick={handlePreviewToggle}
-          title={state.isPreviewMode ? "미리보기 숨기기" : "미리보기 보기"}
+          title={isToggling ? "처리 중..." : (state.isPreviewMode ? "미리보기 숨기기" : "미리보기 보기")}
+          disabled={isToggling}
         >
-          {state.isPreviewMode ? <Eye size={24} /> : <EyeClosed size={24} />}
+          {isToggling ? (
+            <Loader2 size={24} className={styles.spinner} />
+          ) : (
+            state.isPreviewMode ? <Eye size={24} /> : <EyeClosed size={24} />
+          )}
         </button>
         {/* 요소 선택 토글 */}
         <button

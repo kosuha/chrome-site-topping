@@ -26,6 +26,7 @@ interface EventDescriptor {
 
 let baselineSnapshot: BaselineSnapshot | null = null;
 let isRestoringBaseline = false;
+let isApplyingCode = false;
 let modifiedElements: Set<Element> = new Set();
 let originalEventListeners: Map<Element, EventDescriptor[]> = new Map();
 
@@ -423,24 +424,36 @@ function cleanupExtensionCodeOnly(): void {
 }
 
 export async function applyCodeToPage(css: string, js: string): Promise<void> {
-  // Ensure we have a clean baseline of the page for future full restore
-  captureBaselineIfNeeded();
-  
-  // Clean only extension code, preserve user-created elements
-  cleanupExtensionCodeOnly();
-  
-  // Start tracking nodes added during this preview session
-  startPreviewObserver();
-  
-  // Notify page context that a new preview session starts
-  try { window.postMessage({ type: 'SITE_TOPPING_PREVIEW_START' }, '*'); } catch {}
-
-  if (css.trim()) {
-    applyCSSCode(css);
+  // 중복 실행 방지 - 이미 적용 중이거나 복구 중이면 대기
+  if (isApplyingCode || isRestoringBaseline) {
+    console.warn('[Site Topping] Code application blocked - another operation in progress');
+    return;
   }
+  
+  isApplyingCode = true;
+  
+  try {
+    // Ensure we have a clean baseline of the page for future full restore
+    captureBaselineIfNeeded();
+    
+    // Clean only extension code, preserve user-created elements
+    cleanupExtensionCodeOnly();
+    
+    // Start tracking nodes added during this preview session
+    startPreviewObserver();
+    
+    // Notify page context that a new preview session starts
+    try { window.postMessage({ type: 'SITE_TOPPING_PREVIEW_START' }, '*'); } catch {}
 
-  if (js.trim()) {
-    await applyJSCode(js);
+    if (css.trim()) {
+      applyCSSCode(css);
+    }
+
+    if (js.trim()) {
+      await applyJSCode(js);
+    }
+  } finally {
+    isApplyingCode = false;
   }
 }
 
@@ -963,6 +976,13 @@ export function isCodeApplied(): boolean {
 }
 
 export function disablePreview(): void {
+  // 코드 적용 중이면 잠시 대기
+  if (isApplyingCode) {
+    console.warn('[Site Topping] Disable preview blocked - code application in progress');
+    setTimeout(disablePreview, 150);
+    return;
+  }
+  
   // Restore to the existing baseline only; do not recapture a new baseline
   captureBaselineIfNeeded();
   // Tell page context to stop and clear timers
