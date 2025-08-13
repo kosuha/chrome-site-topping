@@ -24,6 +24,7 @@ export interface ChatMessage {
       diff: string;
     };
   };
+  images?: string[]; // 이미지 첨부
 }
 
 export interface ChatThread {

@@ -1049,3 +1049,29 @@
   font-style: italic;
   margin-top: 8px;
 }
+
+/* Message images inside chat */
+.messageImages {
+  margin-top: 8px;
+}
+
+.messageImagesGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.messageImageItem {
+  display: inline-block;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.messageImage {
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  display: block;
+}

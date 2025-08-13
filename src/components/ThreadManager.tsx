@@ -87,6 +87,28 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
         // 서버 메시지를 ChatMessage 형식으로 변환
         const convertedMessages = response.data.messages.map((msg, _) => {
           
+          const images: string[] | undefined = (() => {
+            try {
+              if (!msg.image_data) return undefined;
+              const raw = msg.image_data;
+              if (typeof raw === 'string') {
+                // JSON 문자열이거나 단일 dataURL일 수 있음
+                const parsed = (() => { try { return JSON.parse(raw); } catch { return null; } })();
+                if (Array.isArray(parsed)) return parsed.filter(Boolean);
+                if (typeof parsed === 'string' && parsed.trim()) return [parsed];
+                if (raw.trim()) return [raw];
+                return undefined;
+              }
+              if (Array.isArray(raw)) return raw.filter(Boolean);
+              // 객체 형태인 경우 metadata에 images 필드가 있을 수 있음
+              if (raw.images && Array.isArray(raw.images)) return raw.images.filter(Boolean);
+              return undefined;
+            } catch (e) {
+              console.warn('image_data 파싱 실패:', e);
+              return undefined;
+            }
+          })();
+          
           const converted = {
             id: msg.id,
             type: msg.message_type as 'user' | 'assistant',
@@ -111,7 +133,8 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
                 console.warn('메타데이터 파싱 실패:', error);
               }
               return undefined;
-            })()
+            })(),
+            images,
           };
           return converted;
         });

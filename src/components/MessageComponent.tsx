@@ -59,7 +59,28 @@ export default function MessageComponent({ message }: { message: ChatMessage }) 
   return (
     <div className={`${styles.message} ${styles[message.type]}`}>
       <div className={`${styles.messageContent} ${styles[message.type]}`}>
-        <div className={`${styles.messageBubble} ${styles[message.type]}`}>{text}</div>
+        {message.images && message.images.length > 0 && (
+          <div className={styles.messageImages}>
+            <div className={styles.messageImagesGrid}>
+              {message.images.map((src, index) => (
+                <a
+                  key={`msg-img-${message.id}-${index}`}
+                  href={src}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={styles.messageImageItem}
+                  title="이미지 크게 보기"
+                >
+                  <img src={src} alt={`첨부 이미지 ${index + 1}`} className={styles.messageImage} />
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {text && text.trim() ? (
+          <div className={`${styles.messageBubble} ${styles[message.type]}`}>{text}</div>
+        ) : null}
 
         {message.changes && (
           <div className={styles.aiCodeSection}>

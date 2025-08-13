@@ -139,6 +139,7 @@ export default function ChatTab() {
       content: inputValue.trim(),
       timestamp: new Date(),
       status: 'completed',
+      images: attachedImages.length > 0 ? [...attachedImages] : undefined,
     };
 
     if (!currentThreadId) {
@@ -184,6 +185,7 @@ export default function ChatTab() {
           },
           pageUrl: window.location.href,
           domInfo: domExtractor.extractPageDOM(),
+          images: attachedImages.length > 0 ? attachedImages : undefined,
         },
         siteCode || undefined,
         false,
