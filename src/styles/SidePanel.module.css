@@ -15,18 +15,19 @@
     overflow: hidden;
     color: #2c3e50;
     background: transparent;
+    zoom: 1 !important; /* Override site zoom effects */
     /* border-left: 1px solid #e0e0e0; */
     /* box-shadow: -2px 0 12px rgba(0, 0, 0, 0.1); */
 }
 
-/* 반응형 breakpoint: 화면 가로가 768px 이하일 때 */
-@media (max-width: 768px) {
+/* 반응형 breakpoint: 화면 가로가 650px 이하일 때 */
+@media (max-width: 650px) {
     .sidePanel {
-        width: calc(100vw - 20px);
-        min-width: calc(100vw - 20px);
+        width: calc(100vw - 20px) !important;
+        min-width: calc(100vw - 20px) !important;
         right: calc(-100vw + 20px);
         max-width: none;
-        margin: 10px;
+        margin-left: 20px;
         border-radius: 20px;
     }
 }
@@ -49,7 +50,7 @@
 }
 
 /* 반응형: 모바일에서 리사이즈 핸들 숨김 */
-@media (max-width: 768px) {
+@media (max-width: 650px) {
     .resizeHandle {
         display: none;
     }
@@ -81,8 +82,8 @@
     border: 1px solid #e0e0e0;
 }
 
-/* 반응형: 화면 가로가 768px 이하일 때 헤더를 상단으로 이동 */
-@media (max-width: 768px) {
+/* 반응형: 화면 가로가 650px 이하일 때 헤더를 상단으로 이동 */
+@media (max-width: 650px) {
     .panelHeader {
         position: absolute;
         left: 10px;
@@ -109,7 +110,7 @@
 }
 
 /* 반응형: 모바일에서 구분선을 세로로 변경 */
-@media (max-width: 768px) {
+@media (max-width: 650px) {
     .divider {
         width: 1px;
         height: 24px;
@@ -178,7 +179,7 @@
 }
 
 /* 반응형: 모바일에서 탭바를 가로로 변경 */
-@media (max-width: 768px) {
+@media (max-width: 650px) {
     .tabBar {
         flex-direction: row;
         justify-content: center;
@@ -299,7 +300,7 @@
 }
 
 /* 반응형: 모바일에서 콘텐츠 영역을 상단 헤더 아래로 이동 */
-@media (max-width: 768px) {
+@media (max-width: 650px) {
     .panelContent {
         height: calc(100vh - 100px);
         margin-left: 0;
@@ -324,7 +325,7 @@
 }
 
 /* 반응형: 모바일에서 탭 콘텐츠 높이 조정 */
-@media (max-width: 768px) {
+@media (max-width: 650px) {
     .tabContent {
         height: calc(100vh - 120px);
         padding: 20px 15px 15px 15px;
@@ -392,7 +393,7 @@
 }
 
 /* 반응형: 모바일에서 상태 메시지 위치 조정 */
-@media (max-width: 768px) {
+@media (max-width: 650px) {
     .statusMessage {
         left: 20px;
         top: 90px;

@@ -327,6 +327,8 @@
   flex-direction: column;
   gap: 16px;
   min-height: 0;
+  max-width: 600px;
+  margin: 0 auto;
 }
 
 .messagesArea::-webkit-scrollbar {
@@ -432,6 +434,7 @@
   padding: 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.05);
+  /* width: 100%; */
 }
 
 /* New Claude-like input container */
@@ -444,6 +447,8 @@
   transition: all 0.2s ease;
   position: relative;
   cursor: text;
+  max-width: 600px;
+  margin: 0 auto;
 }
 
 .inputMainContainer:hover {

@@ -23,6 +23,11 @@ function initializeApp() {
     container = document.createElement('div');
     container.id = 'site-topping-root';
     
+    // Override zoom effects from host page
+    container.style.setProperty('zoom', '1', 'important');
+    // container.style.transform = 'scale(1)';
+    // container.style.transformOrigin = 'top right';
+    
     // Create Shadow DOM
     shadowRoot = container.attachShadow({ mode: 'closed' });
     
