@@ -16,6 +16,20 @@ export default function ChatTab() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLDivElement>(null);
 
+  // 커서를 contentEditable 끝으로 이동
+  const setCaretToEnd = (el: HTMLElement) => {
+    try {
+      const selection = window.getSelection();
+      if (!selection) return;
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false); // 끝으로
+      selection.removeAllRanges();
+      selection.addRange(range);
+      el.focus();
+    } catch {}
+  };
+
   // SITE_TOPPING_ELEMENT_PICKED 수신 -> 활성 탭이 Chat이면 입력창에 선택자 추가
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
@@ -26,13 +40,17 @@ export default function ChatTab() {
         if (!selector) return;
         setInputValue(prev => {
           const sep = prev && !prev.endsWith(' ') ? ' ' : '';
-          const next = `${prev}${sep}${selector}`.slice(0, 2000);
+          const next = `${prev}${sep}'${selector}'`.slice(0, 2000);
           // contentEditable 동기화
           if (textareaRef.current) textareaRef.current.textContent = next;
           return next;
         });
-        // 포커스 이동
-        textareaRef.current?.focus();
+        // 포커스 및 커서를 끝으로 이동
+        const el = textareaRef.current;
+        if (el) {
+          el.focus();
+          requestAnimationFrame(() => setCaretToEnd(el));
+        }
       }
     };
     window.addEventListener('message', onMessage);

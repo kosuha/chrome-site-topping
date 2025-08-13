@@ -6,6 +6,11 @@ let boxEl: HTMLDivElement | null = null;
 let labelEl: HTMLDivElement | null = null;
 let lastTarget: Element | null = null;
 
+// 기존 루트 스타일 복원용 저장소
+let prevRootPointerEvents: string | null = null;
+let prevRootOpacity: string | null = null;
+let prevRootTransition: string | null = null;
+
 function ensureOverlay() {
   if (boxEl && labelEl) return;
 
@@ -164,10 +169,34 @@ function onKeyDown(e: KeyboardEvent) {
   }
 }
 
+function setExtensionNonInteractive(enable: boolean) {
+  const root = document.getElementById(ROOT_ID) as HTMLElement | null;
+  if (!root) return;
+  if (enable) {
+    // 기존 인라인 스타일 백업
+    prevRootPointerEvents = root.getAttribute('style')?.includes('pointer-events') ? root.style.pointerEvents : null;
+    prevRootOpacity = root.getAttribute('style')?.includes('opacity') ? root.style.opacity : null;
+    prevRootTransition = root.getAttribute('style')?.includes('transition') ? root.style.transition : null;
+    // 투명도/포인터 비활성화 적용 (!important 로 우선순위 높임)
+    root.style.setProperty('pointer-events', 'none', 'important');
+    root.style.setProperty('opacity', '0.3', 'important');
+    root.style.transition = 'opacity 120ms ease';
+  } else {
+    // 원복
+    root.style.removeProperty('pointer-events');
+    root.style.removeProperty('opacity');
+    if (prevRootPointerEvents !== null) root.style.pointerEvents = prevRootPointerEvents;
+    if (prevRootOpacity !== null) root.style.opacity = prevRootOpacity;
+    if (prevRootTransition !== null) root.style.transition = prevRootTransition; else root.style.removeProperty('transition');
+    prevRootPointerEvents = prevRootOpacity = prevRootTransition = null;
+  }
+}
+
 export function enableElementInspector() {
   if (active) return;
   active = true;
   ensureOverlay();
+  setExtensionNonInteractive(true);
   document.addEventListener('mousemove', onMouseMove, true);
   document.addEventListener('click', onClick, true);
   document.addEventListener('keydown', onKeyDown, true);
@@ -183,6 +212,7 @@ export function disableElementInspector() {
   document.removeEventListener('click', onClick, true);
   document.removeEventListener('keydown', onKeyDown, true);
   clearOverlay();
+  setExtensionNonInteractive(false);
   lastTarget = null;
   try {
     window.postMessage({ type: 'SITE_TOPPING_PICKER_STOP' }, '*');

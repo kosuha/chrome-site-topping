@@ -108,7 +108,7 @@
   min-height: 0;
   height: 100%;
   position: relative;
-  background: rgba(0, 0, 0, 0.2);
+  /* background: rgba(0, 0, 0, 0.2); */
   /* border-radius: 12px; */
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -336,4 +336,16 @@
   font-size: 10px;
   color: #999;
   margin-top: 2px;
+}
+
+/* CodeMirror 배경 투명화 (글로벌 클래스 오버라이드) */
+:global(.cm-editor) {
+  background: transparent !important;
+}
+:global(.cm-editor .cm-scroller) {
+  background: transparent !important;
+}
+:global(.cm-gutters) {
+  background: transparent !important;
+  border-right-color: rgba(0,0,0,0.06) !important;
 }

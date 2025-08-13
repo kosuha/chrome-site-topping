@@ -6,6 +6,14 @@ import styles from '../styles/CodeEditTab.module.css';
 import { xcodeLight } from '@uiw/codemirror-theme-xcode';
 import { useAppContext } from '../contexts/AppContext';
 import { Save } from 'lucide-react';
+import { EditorView } from '@codemirror/view';
+
+// CodeMirror 배경 투명 테마 (글래스 효과를 컨테이너에서 보이도록)
+const transparentTheme = EditorView.theme({
+  '&': { backgroundColor: 'transparent' },
+  '.cm-scroller': { backgroundColor: 'transparent' },
+  '.cm-gutters': { backgroundColor: 'transparent' }
+}, { dark: false });
 
 type Language = 'javascript' | 'css';
 
@@ -96,7 +104,10 @@ export default function CodeEditTab() {
           onChange={handleEditorChange}
           theme={xcodeLight}
           height="100%"
-          extensions={[language === 'javascript' ? javascript() : css()]}
+          extensions={[
+            language === 'javascript' ? javascript() : css(),
+            transparentTheme,
+          ]}
           basicSetup={{
             lineNumbers: true,
             foldGutter: true,
