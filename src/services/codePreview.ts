@@ -7,8 +7,163 @@ interface AppliedCode {
 
 let appliedCode: AppliedCode = {};
 
+// Baseline snapshot for full-body restore between previews
+interface BaselineSnapshot {
+  bodyHTML: string;
+  scrollX: number;
+  scrollY: number;
+  headSigs: string[]; // signatures of initial <head> children to clean extras later
+}
+
+let baselineSnapshot: BaselineSnapshot | null = null;
+let isRestoringBaseline = false;
+
+function getExtensionRoot(): HTMLElement | null {
+  return document.getElementById('site-topping-root');
+}
+
+function captureBaselineIfNeeded(): void {
+  if (baselineSnapshot) return;
+  try {
+    // Clone body and exclude extension root to avoid unmounting our UI
+    const clone = document.body.cloneNode(true) as HTMLElement;
+    const extInClone = (clone.querySelector('#site-topping-root') as HTMLElement) || null;
+    if (extInClone) extInClone.remove();
+
+    const headSigs = Array.from(document.head.children).map((el) => (el as HTMLElement).outerHTML);
+
+    baselineSnapshot = {
+      bodyHTML: (clone as HTMLElement).innerHTML,
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+      headSigs,
+    };
+  } catch (e) {
+    console.warn('[Site Topping] Failed to capture baseline snapshot:', e);
+  }
+}
+
+function cleanupHeadExtras(): void {
+  if (!baselineSnapshot) return;
+  try {
+    const baselineSet = new Set(baselineSnapshot.headSigs);
+    Array.from(document.head.children).forEach((el) => {
+      const id = (el as HTMLElement).id || '';
+      if (id.startsWith(EXTENSION_PREFIX)) return; // keep our own markers/styles
+      const sig = (el as HTMLElement).outerHTML;
+      if (!baselineSet.has(sig)) {
+        try { el.remove(); } catch {}
+      }
+    });
+  } catch (e) {
+    console.warn('[Site Topping] Failed to cleanup head extras:', e);
+  }
+}
+
+function restoreBaseline(): void {
+  if (!baselineSnapshot || isRestoringBaseline) return;
+  isRestoringBaseline = true;
+  try {
+    // Remove previously injected artifacts from our extension
+    removeCodeFromPage();
+
+    const root = getExtensionRoot();
+
+    if (!root) {
+      // No root found; safe to reset whole body
+      document.body.innerHTML = baselineSnapshot.bodyHTML;
+    } else {
+      // Ensure root stays alive: make it a direct child of body if not already
+      if (root.parentElement !== document.body) {
+        document.body.appendChild(root);
+      }
+      // Keep our root mounted; replace other top-level nodes only
+      const children = Array.from(document.body.childNodes);
+      for (const node of children) {
+        if (node !== root) node.parentNode?.removeChild(node);
+      }
+      const tpl = document.createElement('template');
+      tpl.innerHTML = baselineSnapshot.bodyHTML;
+      // Insert restored baseline content before the root so root stays last (overlay)
+      document.body.insertBefore(tpl.content, root);
+    }
+
+    // Restore scroll position
+    window.scrollTo(baselineSnapshot.scrollX, baselineSnapshot.scrollY);
+  } catch (e) {
+    console.warn('[Site Topping] Failed to restore baseline snapshot:', e);
+  } finally {
+    isRestoringBaseline = false;
+  }
+}
+
+let previewObserver: MutationObserver | null = null;
+let previewAddedNodes: Set<Element> = new Set();
+
+function shouldIgnoreAddedElement(el: Element): boolean {
+  if (el.id && el.id.startsWith(EXTENSION_PREFIX)) return true;
+  const root = getExtensionRoot();
+  if (root && (el === root || root.contains(el))) return true;
+  return false;
+}
+
+function startPreviewObserver(): void {
+  // Reset previous tracking if any
+  stopPreviewObserverAndCleanup();
+
+  previewObserver = new MutationObserver((records) => {
+    for (const rec of records) {
+      if (rec.type !== 'childList') continue;
+      rec.addedNodes.forEach((n) => {
+        if (n.nodeType !== Node.ELEMENT_NODE) return;
+        const el = n as Element;
+        if (shouldIgnoreAddedElement(el)) return;
+        previewAddedNodes.add(el);
+      });
+    }
+  });
+
+  try {
+    previewObserver.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
+  } catch (e) {
+    console.warn('[Site Topping] Failed to start preview observer:', e);
+  }
+}
+
+function stopPreviewObserverAndCleanup(): void {
+  try {
+    if (previewObserver) {
+      previewObserver.disconnect();
+      previewObserver = null;
+    }
+    const root = getExtensionRoot();
+    previewAddedNodes.forEach((el) => {
+      try {
+        if (!el.isConnected) return;
+        if (root && (el === root || root.contains(el))) return;
+        el.remove();
+      } catch {}
+    });
+  } finally {
+    previewAddedNodes.clear();
+  }
+}
+
 export async function applyCodeToPage(css: string, js: string): Promise<void> {
-  removeCodeFromPage();
+  // Ensure we have a clean baseline of the page, then restore to it before applying new code
+  captureBaselineIfNeeded();
+  // Clean any previous preview artifacts tracked via observer
+  stopPreviewObserverAndCleanup();
+  // Also clean any stray head elements not in baseline
+  cleanupHeadExtras();
+  restoreBaseline();
+  // Start tracking nodes added during this preview session (to clean head/others on disable)
+  startPreviewObserver();
+  // Notify page context that a new preview session starts
+  try { window.postMessage({ type: 'SITE_TOPPING_PREVIEW_START' }, '*'); } catch {}
 
   if (css.trim()) {
     applyCSSCode(css);
@@ -54,36 +209,83 @@ function addCSSScoping(css: string): string {
 }
 
 function parseAndScopeCSS(css: string): string {
-  // CSS 규칙을 정규식으로 파싱
+  // CSSOM 기반 파싱으로 @keyframes 등 보존, 일반 규칙만 스코핑
+  try {
+    return scopeCSSWithCSSOM(css);
+  } catch (e) {
+    console.warn('[Site Topping] CSSOM scoping failed, fallback to regex scoping:', e);
+  }
+
+  // Fallback: 기존 정규식 스코핑(복잡한 @규칙은 그대로 두거나 깨질 수 있음)
   const cssRuleRegex = /([^{}]+)\{([^{}]*)\}/g;
   let scopedCSS = css;
-  
-  // 전체 CSS를 래핑하여 익스텐션 영역 제외
   const wrappedCSS = `
-    /* Site Topping: 익스텐션 영역 제외 스타일 */
-    :not(#site-topping-root):not(#site-topping-root *) {
-      /* CSS 초기화 방지 */
-    }
-    
-    /* 사용자 CSS (스코핑 적용) */
     ${scopedCSS.replace(cssRuleRegex, (_match, selectorsPart, propertiesPart) => {
       const selectors = selectorsPart.split(',').map((selector: string) => {
         const trimmedSelector = selector.trim();
-        
-        // 스킵할 셀렉터들
         if (shouldSkipSelector(trimmedSelector)) {
           return trimmedSelector;
         }
-        
-        // 스코핑 적용
         return applyScopeToSelector(trimmedSelector);
       });
-      
       return `${selectors.join(', ')} { ${propertiesPart} }`;
     })}
   `;
-  
   return wrappedCSS;
+}
+
+function scopeCSSWithCSSOM(css: string): string {
+  const tmp = document.createElement('style');
+  // media="not all"로 페이지 적용 방지
+  (tmp as any).media = 'not all';
+  tmp.textContent = css;
+  document.head.appendChild(tmp);
+
+  try {
+    const sheet = tmp.sheet as CSSStyleSheet | null;
+    if (!sheet) throw new Error('No CSSStyleSheet parsed');
+
+    const processRules = (rules: CSSRuleList): string => {
+      let out = '';
+      for (let i = 0; i < rules.length; i++) {
+        const rule = rules[i] as CSSRule & { cssRules?: CSSRuleList; conditionText?: string };
+        switch (rule.type) {
+          case CSSRule.STYLE_RULE: {
+            const r = rule as unknown as CSSStyleRule;
+            const scopedSelectors = r.selectorText
+              .split(',')
+              .map(s => applyScopeToSelector(s.trim()))
+              .join(', ');
+            out += `${scopedSelectors} { ${r.style.cssText} }\n`;
+            break;
+          }
+          case CSSRule.MEDIA_RULE: {
+            const mr = rule as unknown as CSSMediaRule;
+            const inner = processRules(mr.cssRules);
+            out += `@media ${mr.conditionText} {\n${inner}}\n`;
+            break;
+          }
+          case CSSRule.SUPPORTS_RULE: {
+            const sr = rule as any; // CSSSupportsRule
+            const inner = processRules(sr.cssRules as CSSRuleList);
+            out += `@supports ${sr.conditionText} {\n${inner}}\n`;
+            break;
+          }
+          default: {
+            // @keyframes, @font-face, @property 등은 그대로 유지
+            out += `${rule.cssText}\n`;
+            break;
+          }
+        }
+      }
+      return out;
+    };
+
+    const result = processRules(sheet.cssRules);
+    return result;
+  } finally {
+    tmp.remove();
+  }
 }
 
 function shouldSkipSelector(selector: string): boolean {
@@ -209,15 +411,68 @@ async function contentScriptExecution(js: string): Promise<void> {
         (function() {
           if (window.__siteTopping_messageListener) return;
           
+          // Patch timers to allow cleanup on preview stop
+          (function() {
+            if (window.__siteTopping_timerPatched) return;
+            window.__siteTopping_timerPatched = true;
+            window.__siteTopping_previewActive = true;
+            window.__siteTopping_timeoutIds = [];
+            window.__siteTopping_intervalIds = [];
+            window.__siteTopping_rafIds = [];
+            const _setTimeout = window.setTimeout;
+            const _setInterval = window.setInterval;
+            const _raf = window.requestAnimationFrame;
+            const _clearTimeout = window.clearTimeout;
+            const _clearInterval = window.clearInterval;
+            const _cancelAnimationFrame = window.cancelAnimationFrame || (window as any).webkitCancelAnimationFrame;
+            window.setTimeout = function(cb, t) {
+              const id = _setTimeout(cb, t);
+              try { window.__siteTopping_timeoutIds.push(id); } catch {}
+              return id;
+            } as any;
+            window.setInterval = function(cb, t) {
+              const id = _setInterval(cb, t);
+              try { window.__siteTopping_intervalIds.push(id); } catch {}
+              return id;
+            } as any;
+            window.requestAnimationFrame = function(cb) {
+              const id = _raf(cb);
+              try { window.__siteTopping_rafIds.push(id); } catch {}
+              return id;
+            } as any;
+            window.__siteTopping_clearPreviewTimers = function() {
+              try { (window.__siteTopping_timeoutIds||[]).forEach(function(id){ _clearTimeout(id); }); } catch {}
+              try { (window.__siteTopping_intervalIds||[]).forEach(function(id){ _clearInterval(id); }); } catch {}
+              try { (window.__siteTopping_rafIds||[]).forEach(function(id){ if (_cancelAnimationFrame) _cancelAnimationFrame(id); }); } catch {}
+              window.__siteTopping_timeoutIds = [];
+              window.__siteTopping_intervalIds = [];
+              window.__siteTopping_rafIds = [];
+            };
+          })();
+          
           window.__siteTopping_messageListener = true;
           window.addEventListener('message', function(event) {
-            if (event.source === window && event.data.type === 'SITE_TOPPING_EXECUTE') {
-              try {
-                
-                eval(event.data.code);
-              } catch (e) {
-                console.error('[Page Context] Execution error:', e);
+            if (event.source !== window || !event.data) return;
+            var data = event.data;
+            try {
+              if (data.type === 'SITE_TOPPING_PREVIEW_START') {
+                window.__siteTopping_previewActive = true;
+                return;
               }
+              if (data.type === 'SITE_TOPPING_PREVIEW_STOP') {
+                window.__siteTopping_previewActive = false;
+                if (typeof window.__siteTopping_clearPreviewTimers === 'function') {
+                  window.__siteTopping_clearPreviewTimers();
+                }
+                return;
+              }
+              if (data.type === 'SITE_TOPPING_EXECUTE') {
+                // Execute user code
+                eval(data.code);
+                return;
+              }
+            } catch (e) {
+              console.error('[Page Context] Execution error:', e);
             }
           });
         })();
@@ -336,4 +591,16 @@ function fallbackJSExecution(js: string): void {
 
 export function isCodeApplied(): boolean {
   return !!(appliedCode.css || appliedCode.js);
+}
+
+export function disablePreview(): void {
+  // Restore to the existing baseline only; do not recapture a new baseline
+  captureBaselineIfNeeded();
+  // Tell page context to stop and clear timers
+  try { window.postMessage({ type: 'SITE_TOPPING_PREVIEW_STOP' }, '*'); } catch {}
+  // Remove nodes added during preview (head/body outside our root)
+  stopPreviewObserverAndCleanup();
+  // Additional safety: remove head children not present in baseline
+  cleanupHeadExtras();
+  restoreBaseline();
 }
