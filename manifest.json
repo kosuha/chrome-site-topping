@@ -6,12 +6,12 @@
   "permissions": [
     "scripting",
     "identity",
-    "tabs",
     "storage",
     "declarativeNetRequest"
   ],
-  "host_permissions": [
-    "*://*/*"
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
   ],
   "action": {
     "default_title": "Site Topping 열기/닫기"
