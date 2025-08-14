@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, ReactNode, useMemo } from 'react';
+import React, { createContext, useContext, useReducer, ReactNode, useMemo, useEffect } from 'react';
 
 export interface ChatMessage {
   id: string;
@@ -110,7 +110,7 @@ type AppAction =
   | { type: 'ADD_SERVER_THREAD'; payload: ChatThread }
   | { type: 'LOAD_THREAD_MESSAGES'; payload: { threadId: string; messages: ChatMessage[] } };
 
-const initialState: AppState = {
+const getInitialState = (): AppState => ({
   isOpen: false,
   activeTab: 'chat',
   width: 400,
@@ -132,7 +132,9 @@ const initialState: AppState = {
   chatThreads: [],
   currentThreadId: null,
   isAiLoading: false,
-};
+});
+
+const initialState = getInitialState();
 
 function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
@@ -303,7 +305,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'SET_AI_LOADING':
       return { ...state, isAiLoading: action.payload };
     case 'RESET_STATE':
-      return initialState;
+      console.log('🔄 RESET_STATE 실행됨 - 완전 초기화');
+      return getInitialState();
     case 'LOAD_THREADS_FROM_SERVER':
       return {
         ...state,
@@ -424,6 +427,158 @@ interface AppProviderProps {
 
 export function AppProvider({ children }: AppProviderProps) {
   const [state, dispatch] = useReducer(appReducer, initialState);
+
+  // 새로운 사용자 데이터 로드 함수
+  const loadUserData = async (_user: any) => {
+    try {
+      console.log('🔄 사용자 데이터 로드 시작');
+      dispatch({ type: 'SET_LOADING', payload: true });
+
+      // AI 서비스를 동적으로 import (순환 참조 방지)
+      const { aiService } = await import('../services/aiService');
+      const { getAllVersions, reconstructFromVersions } = await import('../services/versioning');
+
+      // 스레드 목록 로드
+      console.log('📋 스레드 목록 로드 중...');
+      const threadsResponse = await aiService.getThreads();
+      console.log('📋 스레드 응답:', threadsResponse);
+      
+      if (threadsResponse.status === 'success' && threadsResponse.data.threads) {
+        const serverThreads = threadsResponse.data.threads.map(thread => ({
+          id: thread.id,
+          title: thread.title,
+          messages: [], // 메시지는 나중에 로드
+          createdAt: new Date(thread.created_at),
+          updatedAt: new Date(thread.updated_at)
+        }));
+
+        dispatch({ type: 'LOAD_THREADS_FROM_SERVER', payload: serverThreads });
+
+        // 가장 최근 스레드를 현재 스레드로 설정
+        if (serverThreads.length > 0) {
+          const latestThread = serverThreads[0];
+          dispatch({ type: 'SET_CURRENT_THREAD', payload: latestThread.id });
+
+          // 최신 스레드의 메시지 로드
+          try {
+            const messagesResponse = await aiService.getThreadMessages(latestThread.id);
+            if (messagesResponse.status === 'success' && messagesResponse.data.messages) {
+              const serverMessages = messagesResponse.data.messages.map(msg => ({
+                id: msg.id,
+                type: msg.message_type as 'user' | 'assistant',
+                content: msg.message,
+                timestamp: new Date(msg.created_at),
+                status: (msg.status as any) || 'completed'
+              }));
+
+              dispatch({ type: 'LOAD_THREAD_MESSAGES', payload: { 
+                threadId: latestThread.id, 
+                messages: serverMessages 
+              }});
+            }
+          } catch (error) {
+            console.error('메시지 로드 실패:', error);
+          }
+
+          // 코드 히스토리 전체 로드
+          try {
+            const currentSiteCode = await aiService.getCurrentSiteCode();
+            console.log('🌐 현재 사이트 코드:', currentSiteCode);
+            
+            if (currentSiteCode) {
+              // 모든 버전 가져오기
+              const allVersions = await getAllVersions(currentSiteCode);
+              console.log('📝 모든 코드 버전:', allVersions.length, '개');
+              
+              if (allVersions.length > 0) {
+                // 버전들을 히스토리로 재구성
+                const reconstructedSteps = reconstructFromVersions(allVersions);
+                console.log('🔄 재구성된 히스토리 스텝:', reconstructedSteps.length, '개');
+                
+                // 히스토리 스택 초기화 후 재구성
+                dispatch({ type: 'CLEAR_CODE_HISTORY' });
+                
+                reconstructedSteps.forEach((step, index) => {
+                  dispatch({ type: 'PUSH_CODE_HISTORY', payload: {
+                    javascript: step.javascript,
+                    css: step.css,
+                    description: `버전 ${index + 1}`,
+                    isSuccessful: true
+                  }});
+                });
+                
+                // 최신 코드를 에디터에 설정
+                const latestStep = reconstructedSteps[reconstructedSteps.length - 1];
+                if (latestStep) {
+                  dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'javascript', code: latestStep.javascript } });
+                  dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'css', code: latestStep.css } });
+                }
+              } else {
+                console.log('📝 코드 버전 없음');
+              }
+            }
+          } catch (error) {
+            console.error('코드 버전 로드 실패:', error);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('사용자 데이터 로드 실패:', error);
+      dispatch({ type: 'SET_ERROR', payload: '사용자 데이터를 로드할 수 없습니다.' });
+    } finally {
+      dispatch({ type: 'SET_LOADING', payload: false });
+    }
+  };
+
+  // 초기 로딩 시 인증된 사용자 데이터 로드
+  useEffect(() => {
+    const loadInitialUserData = async () => {
+      try {
+        console.log('🚀 초기 사용자 데이터 로드 시도');
+        // Supabase에서 현재 세션 확인
+        const { supabase } = await import('../services/supabase');
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        console.log('🔐 현재 세션:', session?.user?.id ? `사용자 ${session.user.id}` : '로그인 안됨');
+        
+        if (session?.user) {
+          console.log('👤 로그인된 사용자 발견, 데이터 로드 시작');
+          await loadUserData(session.user);
+        } else {
+          console.log('❌ 로그인된 사용자 없음');
+        }
+      } catch (error) {
+        console.error('초기 사용자 데이터 로드 실패:', error);
+      }
+    };
+
+    loadInitialUserData();
+  }, []);
+
+  // 사용자 변경 이벤트 리스너
+  useEffect(() => {
+    const handleUserChange = (event: CustomEvent) => {
+      const { action, user } = event.detail;
+      console.log('📱 AppContext 사용자 변경 이벤트:', action, user?.id);
+      
+      if (action === 'logout') {
+        // 로그아웃 시 모든 사용자 관련 상태 초기화
+        console.log('🗑️ AppContext 상태 초기화 (로그아웃)');
+        dispatch({ type: 'RESET_STATE' });
+      } else if (action === 'login' || action === 'switch') {
+        // 로그인/사용자 전환 시 상태 초기화 후 새 데이터 로드
+        console.log('🗑️ AppContext 상태 초기화 (로그인/전환)');
+        dispatch({ type: 'RESET_STATE' });
+        loadUserData(user);
+      }
+    };
+
+    window.addEventListener('auth:user-changed', handleUserChange as EventListener);
+    
+    return () => {
+      window.removeEventListener('auth:user-changed', handleUserChange as EventListener);
+    };
+  }, []);
 
   const actions = useMemo(() => ({
     togglePanel: () => dispatch({ type: 'TOGGLE_PANEL' }),
