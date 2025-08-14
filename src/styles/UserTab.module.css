@@ -58,6 +58,12 @@
   color: rgba(0, 0, 0, 0.8);
 }
 
+.accountActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .signOutButton {
   padding: 8px 16px;
   background: rgba(255, 59, 48, 0.1);
@@ -78,6 +84,39 @@
 }
 
 .signOutButton:active {
+  transform: translateY(0);
+}
+
+.deleteAccountButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 16px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  color: #dc2626;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(20px);
+}
+
+.deleteAccountButton:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+  transform: translateY(-1px);
+}
+
+.deleteAccountButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.deleteAccountButton:active {
   transform: translateY(0);
 }
 

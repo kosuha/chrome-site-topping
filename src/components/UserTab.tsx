@@ -20,6 +20,7 @@ export default function UserTab() {
   const [editingDomain, setEditingDomain] = useState('')
   const [isUpdatingDomain, setIsUpdatingDomain] = useState(false)
   const [copiedScript, setCopiedScript] = useState(false)
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false)
 
   
   const siteService = SiteIntegrationService.getInstance()
@@ -278,6 +279,58 @@ export default function UserTab() {
     }
   }
 
+  const handleDeleteAccount = async () => {
+    if (isDeletingAccount) return;
+
+    const confirmed = window.confirm(
+      '정말로 계정을 삭제하시겠습니까?\n\n경고: 이 작업은 되돌릴 수 없습니다.\n- 모든 사이트 연동 정보가 삭제됩니다\n- 모든 채팅 기록이 삭제됩니다\n- 모든 스크립트 데이터가 삭제됩니다'
+    );
+    
+    if (!confirmed) return;
+
+    const doubleConfirmed = window.confirm(
+      '마지막 확인입니다.\n\n계정을 완전히 삭제하시겠습니까?\n\n삭제된 데이터는 복구할 수 없습니다.'
+    );
+
+    if (!doubleConfirmed) return;
+
+    try {
+      setIsDeletingAccount(true);
+      setSiteError('');
+
+      // Supabase 세션에서 토큰 가져오기
+      const { supabase } = await import('../services/supabase')
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.access_token) {
+        throw new Error('인증 토큰을 찾을 수 없습니다. 다시 로그인해주세요.');
+      }
+
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/auth/account`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || '계정 삭제에 실패했습니다');
+      }
+
+      // 성공 시 로그아웃 처리
+      alert('계정이 성공적으로 삭제되었습니다.');
+      await signOut();
+      
+    } catch (error) {
+      console.error('계정 삭제 실패:', error);
+      setSiteError(error instanceof Error ? error.message : '계정 삭제에 실패했습니다.');
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  };
+
   if (loading) {
     return <div className={styles.loading}>Loading...</div>
   }
@@ -294,9 +347,25 @@ export default function UserTab() {
           </div>
           <div className={styles.userInfo}>
             <div className={styles.userEmail}>{user.email}</div>
-            <button onClick={signOut} className={styles.signOutButton}>
-              로그아웃
-            </button>
+            <div className={styles.accountActions}>
+              <button onClick={signOut} className={styles.signOutButton}>
+                로그아웃
+              </button>
+              <button 
+                onClick={handleDeleteAccount}
+                disabled={isDeletingAccount}
+                className={styles.deleteAccountButton}
+              >
+                {isDeletingAccount ? (
+                  <>
+                    <Loader2 className={styles.spinnerIcon} />
+                    삭제 중...
+                  </>
+                ) : (
+                  '회원탈퇴'
+                )}
+              </button>
+            </div>
           </div>
         </div>
 
