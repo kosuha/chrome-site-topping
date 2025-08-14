@@ -1,21 +1,17 @@
 {
   "manifest_version": 3,
   "name": "Site Topping",
-  "version": "1.0",
-  "description": "Site Topping Extension",
+  "version": "0.1.0",
+  "description": "웹사이트 실시간 커스터마이징 AI 도우미",
   "permissions": [
-    "activeTab",
     "scripting",
     "identity",
     "tabs",
     "storage",
-    "declarativeNetRequest",
-    "declarativeNetRequestWithHostAccess"
+    "declarativeNetRequest"
   ],
   "host_permissions": [
-    "*://*/*",
-    "http://localhost:8000/*",
-    "https://api.sitetopping.com/*"
+    "*://*/*"
   ],
   "action": {
     "default_title": "Site Topping 열기/닫기"
@@ -32,7 +28,7 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+    "extension_pages": "script-src 'self'; object-src 'self';"
   },
   "declarative_net_request": {
     "rule_resources": [
