@@ -1,8 +1,8 @@
 import { useAuth } from '../contexts/AuthContext'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { SiteIntegrationService, Site } from '../services/siteIntegration'
 import styles from '../styles/UserTab.module.css'
-import { Copy, Check, Plus, Loader2, AlertCircle, Globe, ChevronDown, Trash2 } from 'lucide-react'
+import { Copy, Check, Plus, Loader2, AlertCircle, Globe, Trash2, RotateCw } from 'lucide-react'
 
 export default function UserTab() {
   const { user, loading, error, signInWithProvider, signOut } = useAuth()
@@ -16,27 +16,11 @@ export default function UserTab() {
   const [newSiteDomain, setNewSiteDomain] = useState('')
   const [isAddingSite, setIsAddingSite] = useState(false)
   const [isDeletingSite, setIsDeletingSite] = useState<string | null>(null)
-  const [showSiteDropdown, setShowSiteDropdown] = useState(false)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null)
   const [editingSiteId, setEditingSiteId] = useState<string | null>(null)
   const [editingDomain, setEditingDomain] = useState('')
   const [isUpdatingDomain, setIsUpdatingDomain] = useState(false)
   const [copiedScript, setCopiedScript] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
 
-  // 드롭다운 외부 클릭 시 닫기
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (showSiteDropdown && dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setShowSiteDropdown(false)
-      }
-    }
-
-    if (showSiteDropdown) {
-      document.addEventListener('click', handleClickOutside)
-      return () => document.removeEventListener('click', handleClickOutside)
-    }
-  }, [showSiteDropdown])
   
   const siteService = SiteIntegrationService.getInstance()
 
@@ -53,6 +37,17 @@ export default function UserTab() {
       loadConnectedSites()
     }
   }, [user])
+
+  // 현재 도메인과 일치하는 사이트를 자동 선택하는 useEffect
+  useEffect(() => {
+    if (connectedSites.length > 0 && currentDomain) {
+      const currentSite = connectedSites.find(site => site.domain === currentDomain)
+      if (currentSite && selectedSiteId !== currentSite.id) {
+        setSelectedSiteId(currentSite.id)
+        loadSiteScript(currentSite)
+      }
+    }
+  }, [connectedSites, currentDomain, selectedSiteId])
 
   const loadConnectedSites = async () => {
     setSiteError('')
@@ -107,8 +102,7 @@ export default function UserTab() {
     setSelectedSiteId(siteId)
     const selectedSite = connectedSites?.find(site => site.id === siteId)
     if (selectedSite) {
-      // 사용자에게는 항상 HTML script 태그를 보여줌
-      setIntegrationScript(siteService.generateIntegrationScript(selectedSite.domain, selectedSite.site_code))
+      await loadSiteScript(selectedSite)
     }
   }
 
@@ -196,8 +190,12 @@ export default function UserTab() {
     }
   };
 
-  const handleDeleteSite = async (siteId: string) => {
+  const handleDeleteSite = async (siteId: string, siteDomain: string) => {
     if (isDeletingSite || !siteId) return;
+
+    const confirmed = window.confirm(`정말로 "${siteDomain}" 사이트를 삭제하시겠습니까?\n\n경고: 이 작업은 되돌릴 수 없습니다.`);
+    
+    if (!confirmed) return;
 
     try {
       setIsDeletingSite(siteId);
@@ -213,7 +211,6 @@ export default function UserTab() {
       
       // 사이트 목록 새로고침
       await loadConnectedSites();
-      setShowDeleteConfirm(null);
       
     } catch (error) {
       console.error('사이트 삭제 실패:', error);
@@ -270,17 +267,6 @@ export default function UserTab() {
     setEditingDomain('')
   }
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'connected':
-        return <span className={styles.statusIcon}>✓</span>
-      case 'checking':
-        return <span className={styles.statusIcon}>⟳</span>
-      default:
-        return <span className={styles.statusIcon}>○</span>
-    }
-  }
-
   const getStatusText = (status: string) => {
     switch (status) {
       case 'connected':
@@ -289,17 +275,6 @@ export default function UserTab() {
         return '확인중'
       default:
         return '연결안됨'
-    }
-  }
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'connected':
-        return styles.statusConnected
-      case 'checking':
-        return styles.statusChecking
-      default:
-        return styles.statusDisconnected
     }
   }
 
@@ -349,7 +324,7 @@ export default function UserTab() {
                     disabled={isChecking}
                     title="연동 상태 다시 확인"
                   >
-                    ⟳
+                    <RotateCw size={14} />
                   </button>
                 </div>
               )
@@ -427,73 +402,24 @@ export default function UserTab() {
               </div>
             ) : (
               <div className={styles.sitesContainer}>
-                {/* Site Selection Dropdown */}
+                {/* Site Selection */}
                 <div className={styles.siteSelection}>
-                  <div className={styles.dropdownContainer} ref={dropdownRef}>
-                    <button
-                      onClick={() => setShowSiteDropdown(!showSiteDropdown)}
-                      className={styles.dropdownTrigger}
-                    >
-                      <div className={styles.dropdownContent}>
-                        {(() => {
-                          const selected = connectedSites.find(site => site.id === selectedSiteId);
-                          if (selected) {
-                            return (
-                              <>
-                                {getStatusIcon(selected.connection_status || 'disconnected')}
-                                <span className={styles.siteName}>
-                                  {selected.domain}
-                                </span>
-                                <span className={getStatusColor(selected.connection_status || 'disconnected')}>
-                                  {getStatusText(selected.connection_status || 'disconnected')}
-                                </span>
-                              </>
-                            );
-                          }
-                          return <span className={styles.placeholderText}>사이트를 선택하세요</span>;
-                        })()}
-                      </div>
-                      <ChevronDown className={`${styles.chevronIcon} ${showSiteDropdown ? styles.rotated : ''}`} />
-                    </button>
-                    
-                    {showSiteDropdown && (
-                      <div className={styles.dropdownMenu}>
-                        {connectedSites.map((site) => (
-                          <div key={site.id} className={styles.dropdownItem}>
-                            <button
-                              onClick={() => {
-                                setSelectedSiteId(site.id);
-                                setShowSiteDropdown(false);
-                                handleSiteSelect(site.id);
-                              }}
-                              className={`${styles.dropdownItemButton} ${
-                                selectedSiteId === site.id ? styles.selectedItem : ''
-                              }`}
-                            >
-                              <div className={styles.dropdownItemContent}>
-                                {getStatusIcon(site.connection_status || 'disconnected')}
-                                <div className={styles.siteDetails}>
-                                  <p className={styles.dropdownSiteName}>
-                                    {site.domain}
-                                  </p>
-                                  <div className={styles.statusContainer}>
-                                    <span className={getStatusColor(site.connection_status || 'disconnected')}>
-                                      {getStatusText(site.connection_status || 'disconnected')}
-                                    </span>
-                                  </div>
-                                  {site.error_message && (
-                                    <p className={styles.errorText}>
-                                      {site.error_message}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  <label htmlFor="site-select" className={styles.selectLabel}>
+                    사이트 선택
+                  </label>
+                  <select
+                    id="site-select"
+                    value={selectedSiteId}
+                    onChange={(e) => handleSiteSelect(e.target.value)}
+                    className={styles.siteSelect}
+                  >
+                    <option value="">사이트를 선택하세요</option>
+                    {connectedSites.map((site) => (
+                      <option key={site.id} value={site.id}>
+                        {site.domain === currentDomain ? '📍 ' : ''}{site.domain} - {getStatusText(site.connection_status || 'disconnected')}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 
                 {/* Selected Site Information */}
@@ -568,7 +494,7 @@ export default function UserTab() {
                         <div className={styles.actionRow}>
                           <div className={styles.actionButtons}>
                             <button
-                              onClick={() => setShowDeleteConfirm(selected.id)}
+                              onClick={() => handleDeleteSite(selected.id, selected.domain)}
                               disabled={isDeletingSite === selected.id}
                               className={styles.deleteActionButton}
                             >
@@ -598,36 +524,6 @@ export default function UserTab() {
           </div>
         </div>
 
-        {/* 삭제 확인 모달 */}
-        {showDeleteConfirm && (() => {
-          const siteToDelete = connectedSites.find(site => site.id === showDeleteConfirm);
-          return siteToDelete ? (
-            <div className={styles.modal}>
-              <div className={styles.modalContent}>
-                <h3>사이트 삭제</h3>
-                <p>정말로 "<strong>{siteToDelete.domain}</strong>" 사이트를 삭제하시겠습니까?</p>
-                <div className={styles.warning}>
-                  <p>⚠️ 이 작업은 되돌릴 수 없습니다</p>
-                </div>
-                <div className={styles.modalActions}>
-                  <button 
-                    className={styles.cancelButton}
-                    onClick={() => setShowDeleteConfirm(null)}
-                  >
-                    취소
-                  </button>
-                  <button 
-                    className={styles.confirmDeleteButton}
-                    onClick={() => handleDeleteSite(showDeleteConfirm)}
-                    disabled={isDeletingSite === showDeleteConfirm}
-                  >
-                    {isDeletingSite === showDeleteConfirm ? '삭제중...' : '삭제'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : null;
-        })()}
       </div>
     )
   }
