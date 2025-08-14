@@ -321,6 +321,12 @@
   position: relative;
 }
 
+.messagesAreaContainer {
+  flex: 1;
+  display: flex;
+  width: 100%;
+}
+
 .messagesArea {
   flex: 1;
   overflow-y: overlay;

@@ -265,21 +265,23 @@ export default function ChatTab() {
       </div>
 
       <div className={styles.chatContainer}>
-        <div className={styles.messagesArea}>
-          {computed.currentMessages.length === 0 ? (
-            <div className={styles.emptyState}>
-              <div className={styles.emptyStateIcon}>💬</div>
-              <div className={styles.emptyStateText}>AI와 채팅을 시작하세요</div>
-              <div className={styles.emptyStateSubtext}>코드 생성, 수정, 설명 등 다양한 도움을 받을 수 있습니다</div>
-            </div>
-          ) : (
-            <>
-              {computed.currentMessages.map((message) => (
-                <MessageComponent key={message.id} message={message} />
-              ))}
-            </>
-          )}
-          <div ref={messagesEndRef} />
+        <div className={styles.messagesAreaContainer}>
+          <div className={styles.messagesArea}>
+            {computed.currentMessages.length === 0 ? (
+              <div className={styles.emptyState}>
+                <div className={styles.emptyStateIcon}>💬</div>
+                <div className={styles.emptyStateText}>AI와 채팅을 시작하세요</div>
+                <div className={styles.emptyStateSubtext}>코드 생성, 수정, 설명 등 다양한 도움을 받을 수 있습니다</div>
+              </div>
+            ) : (
+              <>
+                {computed.currentMessages.map((message) => (
+                  <MessageComponent key={message.id} message={message} />
+                ))}
+              </>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
         </div>
 
         <div className={styles.inputArea}>
