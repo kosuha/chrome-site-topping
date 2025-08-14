@@ -849,8 +849,22 @@ async function contentScriptExecution(js: string): Promise<void> {
                 return;
               }
               if (data.type === 'SITE_TOPPING_EXECUTE') {
-                // Execute user code
-                eval(data.code);
+                // Execute user code using Function constructor (CSP 정책 준수)
+                try {
+                  const func = new Function(data.code);
+                  func();
+                } catch (funcErr) {
+                  console.error('[Page Context] Function constructor failed:', funcErr);
+                  // Script element fallback
+                  try {
+                    const script = document.createElement('script');
+                    script.textContent = data.code;
+                    document.head.appendChild(script);
+                    document.head.removeChild(script);
+                  } catch (scriptErr) {
+                    console.error('[Page Context] Script element failed:', scriptErr);
+                  }
+                }
                 return;
               }
             } catch (e) {
@@ -886,10 +900,21 @@ async function advancedFallbackExecution(js: string): Promise<void> {
     const workerCode = `
       self.onmessage = function(e) {
         try {
-          eval(e.data);
+          // Function constructor 사용 (CSP 정책 준수)
+          const func = new Function(e.data);
+          func();
           self.postMessage({ success: true });
-        } catch (error) {
-          self.postMessage({ success: false, error: error.message });
+        } catch (funcError) {
+          // Blob URL 방식 fallback
+          try {
+            const blob = new Blob([e.data], { type: 'application/javascript' });
+            const url = URL.createObjectURL(blob);
+            importScripts(url);
+            URL.revokeObjectURL(url);
+            self.postMessage({ success: true });
+          } catch (error) {
+            self.postMessage({ success: false, error: error.message });
+          }
         }
       };
     `;

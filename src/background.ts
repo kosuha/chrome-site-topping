@@ -121,13 +121,22 @@ async function executeScriptInTab(tabId: number, code: string): Promise<any> {
             world: 'MAIN', // 페이지의 메인 컨텍스트에서 실행 (CSP 우회)
             func: (jsCode: string) => {
                 try {
-                    // 직접 eval 실행 (MAIN world에서는 CSP 영향 받지 않음)
-                    return eval(jsCode);
-                } catch (evalError) {
-                    console.error('[MAIN World] Eval failed:', evalError);
-                    // Function constructor 시도
+                    // Function constructor 사용 (CSP 정책 준수)
                     const func = new Function(jsCode);
                     return func();
+                } catch (funcError) {
+                    console.error('[MAIN World] Function constructor failed:', funcError);
+                    // Script element fallback
+                    try {
+                        const script = document.createElement('script');
+                        script.textContent = jsCode;
+                        document.head.appendChild(script);
+                        document.head.removeChild(script);
+                        return { success: true, method: 'script-element' };
+                    } catch (scriptError) {
+                        console.error('[MAIN World] Script element failed:', scriptError);
+                        return { success: false, error: scriptError instanceof Error ? scriptError.message : 'Script execution failed' };
+                    }
                 }
             },
             args: [code]
@@ -154,11 +163,13 @@ async function executeScriptInTab(tabId: number, code: string): Promise<any> {
                         iframe.onload = () => {
                             try {
                                 const iframeWindow = iframe.contentWindow;
-                                if (iframeWindow && (iframeWindow as any).eval) {
-                                    (iframeWindow as any).eval(jsCode);
+                                if (iframeWindow) {
+                                    // Function constructor 사용 (CSP 정책 준수)
+                                    const func = new (iframeWindow as any).Function(jsCode);
+                                    func();
                                 }
                             } catch (e) {
-                                console.error('[ISOLATED] iframe eval failed:', e);
+                                console.error('[ISOLATED] iframe Function constructor failed:', e);
                             }
                             iframe.remove();
                         };
@@ -203,9 +214,20 @@ async function executeScriptInTab(tabId: number, code: string): Promise<any> {
                         if (!(window as any).__siteTopping_eventListenerAdded) {
                             window.addEventListener('site-topping-execute', (e: any) => {
                                 try {
-                                    eval(e.detail.code);
-                                } catch (evalErr) {
-                                    console.error('[CustomEvent] Eval failed:', evalErr);
+                                    // Function constructor 사용 (CSP 정책 준수)
+                                    const func = new Function(e.detail.code);
+                                    func();
+                                } catch (funcErr) {
+                                    console.error('[CustomEvent] Function constructor failed:', funcErr);
+                                    // Script element fallback
+                                    try {
+                                        const script = document.createElement('script');
+                                        script.textContent = e.detail.code;
+                                        document.head.appendChild(script);
+                                        document.head.removeChild(script);
+                                    } catch (scriptErr) {
+                                        console.error('[CustomEvent] Script element failed:', scriptErr);
+                                    }
                                 }
                             });
                             (window as any).__siteTopping_eventListenerAdded = true;
