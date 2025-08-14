@@ -1,4 +1,7 @@
 import React, { createContext, useContext, useReducer, ReactNode, useMemo, useEffect } from 'react';
+import { aiService } from '../services/aiService';
+import { getAllVersions, reconstructFromVersions } from '../services/versioning';
+import { supabase } from '../services/supabase';
 
 export interface ChatMessage {
   id: string;
@@ -434,10 +437,6 @@ export function AppProvider({ children }: AppProviderProps) {
       console.log('🔄 사용자 데이터 로드 시작');
       dispatch({ type: 'SET_LOADING', payload: true });
 
-      // AI 서비스를 동적으로 import (순환 참조 방지)
-      const { aiService } = await import('../services/aiService');
-      const { getAllVersions, reconstructFromVersions } = await import('../services/versioning');
-
       // 스레드 목록 로드
       console.log('📋 스레드 목록 로드 중...');
       const threadsResponse = await aiService.getThreads();
@@ -536,7 +535,6 @@ export function AppProvider({ children }: AppProviderProps) {
       try {
         console.log('🚀 초기 사용자 데이터 로드 시도');
         // Supabase에서 현재 세션 확인
-        const { supabase } = await import('../services/supabase');
         const { data: { session } } = await supabase.auth.getSession();
         
         console.log('🔐 현재 세션:', session?.user?.id ? `사용자 ${session.user.id}` : '로그인 안됨');

@@ -23,12 +23,25 @@ export default defineConfig(({ command, mode }) => {
       crx({ manifest })
     ],
     build: {
+      // 큰 의존성을 분리해 청크 크기 분산
       rollupOptions: {
         input: {
           background: 'src/background.ts',
           content: 'src/content.tsx'
+        },
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('react')) return 'vendor-react';
+              if (id.includes('@uiw') || id.includes('codemirror')) return 'vendor-codemirror';
+              if (id.includes('@supabase')) return 'vendor-supabase';
+              if (id.includes('lucide-react')) return 'vendor-icons';
+            }
+          }
         }
-      }
+      },
+      // 경고 임계치 완만 상향(필요시 조정)
+      chunkSizeWarningLimit: 900
     }
   };
 })
