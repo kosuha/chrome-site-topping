@@ -3,7 +3,6 @@ import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { css } from '@codemirror/lang-css';
 import styles from '../styles/CodeEditTab.module.css';
-import { xcodeLight } from '@uiw/codemirror-theme-xcode';
 import { useAppContext } from '../contexts/AppContext';
 import { Save, Loader2, Check, X } from 'lucide-react';
 import { EditorView } from '@codemirror/view';
@@ -158,7 +157,7 @@ export default function CodeEditTab() {
         <CodeMirror
           value={state.editorCode[language]}
           onChange={handleEditorChange}
-          theme={xcodeLight}
+          theme={'light'}
           height="100%"
           extensions={[
             language === 'javascript' ? javascript() : css(),
