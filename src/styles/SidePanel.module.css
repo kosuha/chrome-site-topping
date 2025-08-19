@@ -56,67 +56,34 @@
     }
 }
 
-/* Panel Header - Clean white card style - Vertical layout on left */
+/* Panel Header - Clean white card style - Horizontal layout on top */
 .panelHeader {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 60px !important;
-    min-width: 60px;
-    max-width: 60px;
-    height: auto;
-    border-radius: 999px;
+    width: 100%;
+    height: 60px;
+    /* border-radius: 16px; */
     display: flex;
-    flex-direction: column;
-    justify-content: center;
+    flex-direction: row;
+    justify-content: space-between;
     align-items: center;
-    z-index: 2;
-    padding: 10px 8px;
-    gap: 4px;
-    margin-top: 10px;
+    padding: 8px 20px;
+    gap: 8px;
     background: rgba(255, 255, 255, 0.88);
-    backdrop-filter: blur(2px) saturate(1.1);
+    /* backdrop-filter: blur(2px) saturate(1.1);
     -webkit-backdrop-filter: blur(2px) saturate(1.1);
-    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.05);
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.05); */
     box-sizing: border-box;
-    border: 1px solid #e0e0e0;
+    border-bottom: 1px solid #e0e0e0;
+    /* margin: 10px; */
 }
 
-/* 반응형: 화면 가로가 650px 이하일 때 헤더를 상단으로 이동 */
-@media (max-width: 650px) {
-    .panelHeader {
-        position: absolute;
-        left: 10px;
-        top: 10px;
-        right: 10px;
-        width: calc(100% - 20px) !important;
-        min-width: auto;
-        max-width: none;
-        height: 60px;
-        border-radius: 16px;
-        flex-direction: row;
-        justify-content: space-between;
-        padding: 8px 20px;
-        margin-top: 0;
-        gap: 8px;
-    }
-}
 
 .divider {
-    width: 100%;
-    height: 1px;
+    width: 1px;
+    height: 24px;
     background: #e0e0e0;
-    margin: 8px 0;
+    margin: 0 8px;
 }
 
-/* 반응형: 모바일에서 구분선을 세로로 변경 */
-@media (max-width: 650px) {
-    .divider {
-        width: 1px;
-        height: 24px;
-        margin: 0 8px;
-    }
-}
 
 .title {
     margin: 0;
@@ -168,26 +135,16 @@
     transform: scale(0.95);
 }
 
-/* Tab Bar - Clean white style - Vertical */
+/* Tab Bar - Clean white style - Horizontal */
 .tabBar {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    width: 100%;
+    width: auto;
 }
 
-/* 반응형: 모바일에서 탭바를 가로로 변경 */
-@media (max-width: 650px) {
-    .tabBar {
-        flex-direction: row;
-        justify-content: center;
-        align-items: center;
-        gap: 8px;
-        width: auto;
-    }
-}
 
 .tabBtn {
     background: transparent;
@@ -289,50 +246,18 @@
     transform: scale(1.05);
 }
 
-/* Content area */
-.panelContent {
-    height: 100vh;
-    margin-left: 60px;
-    overflow: hidden;
-    position: relative;
-    padding: 10px;
-    box-sizing: border-box;
-}
+/* Content area - 삭제됨, SidePanelApp에서 직접 관리 */
 
-/* 반응형: 모바일에서 콘텐츠 영역을 상단 헤더 아래로 이동 */
-@media (max-width: 650px) {
-    .panelContent {
-        height: calc(100vh - 100px);
-        margin-left: 0;
-        margin-top: 80px;
-        padding: 10px 10px 10px 10px;
-    }
-}
 
 /* Tab Content */
 .tabContent {
     display: none;
-    height: calc(100vh - 20px);
+    height: 100%;
     overflow-y: auto;
-    padding: 30px 20px 20px 20px;
     background: rgba(255, 255, 255, 0.92);
-    backdrop-filter: blur(2px) saturate(1.05);
-    -webkit-backdrop-filter: blur(2px) saturate(1.05);
-    border-radius: 24px;
     box-sizing: border-box;
-    border: 1px solid #e0e0e0;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
-/* 반응형: 모바일에서 탭 콘텐츠 높이 조정 */
-@media (max-width: 650px) {
-    .tabContent {
-        height: calc(100vh - 120px);
-        padding: 20px 15px 15px 15px;
-        border-radius: 16px;
-        margin: 0;
-    }
-}
 
 .tabContent.active {
     display: block;
@@ -381,28 +306,20 @@
 /* 배포 상태 메시지 */
 .statusMessage {
     position: absolute;
-    left: 70px;
-    top: 20px;
-    max-width: 300px;
+    left: 20px;
+    top: 90px;
+    right: 20px;
+    max-width: none;
+    width: calc(100% - 40px);
+    text-align: center;
     padding: 8px 12px;
     border-radius: 6px;
     font-size: 12px;
     font-weight: 500;
-    z-index: 10;
+    z-index: 1000;
     animation: slideInStatus 0.3s ease;
 }
 
-/* 반응형: 모바일에서 상태 메시지 위치 조정 */
-@media (max-width: 650px) {
-    .statusMessage {
-        left: 20px;
-        top: 90px;
-        right: 20px;
-        max-width: none;
-        width: calc(100% - 40px);
-        text-align: center;
-    }
-}
 
 .statusMessage.success {
     background: #d4edda;

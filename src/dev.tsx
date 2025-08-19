@@ -1,17 +1,11 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { AppProvider, useAppContext } from './contexts/AppContext';
+import { AppProvider } from './contexts/AppContext';
 import { AuthProvider } from './contexts/AuthContext';
-import SidePanel from './components/SidePanel';
+import SidePanelApp from './components/SidePanelApp';
 
 const DevPanel: React.FC = () => {
-  const { actions } = useAppContext();
-  
-  useEffect(() => {
-    actions.openPanel();
-  }, [actions]);
-
-  return <SidePanel isOpen={true} onClose={() => console.log('Close clicked')} />;
+  return <SidePanelApp />;
 };
 
 const App: React.FC = () => {

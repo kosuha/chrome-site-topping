@@ -2,17 +2,17 @@ import { useEffect, useState } from 'react';
 import styles from '../styles/SidePanel.module.css';
 import { TABS } from '../utils/constants';
 import { useAppContext } from '../contexts/AppContext';
-import { ArrowRightFromLine, BotMessageSquare, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigRight, Crosshair, CodeXml, Loader2, Check, X } from 'lucide-react';
+import { BotMessageSquare, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigRight, CodeXml, Loader2, Check, X } from 'lucide-react';
 import { useDebounce } from '../hooks/useDebounce';
 import { SiteIntegrationService } from '../services/siteIntegration';
 import { useSidePanelMessage } from '../hooks/useSidePanelMessage';
 import { createSidePanelCodePreviewService } from '../services/sidePanelCodePreview';
 
 interface PanelHeaderProps {
-  onClose?: () => void; // 사이드패널에서는 선택적
+  // 사이드패널에서는 props 불필요
 }
 
-export default function PanelHeader({ onClose }: PanelHeaderProps) {
+export default function PanelHeader({}: PanelHeaderProps) {
   const { state, actions } = useAppContext();
   const { activeTab } = state;
   const [isDeploying, setIsDeploying] = useState(false);
@@ -24,8 +24,7 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
   const { sendMessageToActiveTab } = useSidePanelMessage();
   const codePreviewService = createSidePanelCodePreviewService(sendMessageToActiveTab);
   
-  // 요소 선택(인스펙터) 상태 - 사이드패널에서는 비활성화
-  const [isPicking] = useState(false);
+  // 사이드패널에서는 요소 선택 기능 없음
   
   // 프리뷰 토글 상태 보호
   const [isToggling, setIsToggling] = useState(false);
@@ -113,11 +112,7 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
     }
   };
 
-  // 요소 선택 토글 (사이드패널에서는 비활성화)
-  const handlePickerToggle = () => {
-    // 사이드패널에서는 요소 선택 기능을 지원하지 않음
-    console.log('[SidePanel] Element picker not supported in side panel mode');
-  };
+  // 사이드패널에서는 요소 선택 기능 없음
 
   // 프리뷰 모드일 때 디바운스된 코드 변경시 적용
   useEffect(() => {
@@ -152,22 +147,9 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
     // 사이드패널에서는 요소 선택 기능이 비활성화되므로 빈 useEffect
   }, []);
 
-  const handleClose = () => {
-    // 사이드패널에서는 닫기 기능 불필요 (네이티브 사이드패널이 처리)
-    if (onClose) {
-      onClose();
-    }
-  };
-
   return (
     <div className={styles.panelHeader}>
       <div className={styles.tabBar}>
-        {/* 닫기 버튼은 사이드패널에서 선택적으로만 표시 */}
-        {onClose && (
-          <button className={styles.tabBtn} onClick={handleClose}>
-            <ArrowRightFromLine size={24} />
-          </button>
-        )}
         <button 
           className={`${styles.tabBtn} ${state.isPreviewMode ? styles.activePreview : ''} ${isToggling ? styles.loading : ''}`}
           onClick={handlePreviewToggle}
@@ -180,16 +162,6 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
             state.isPreviewMode ? <Eye size={24} /> : <EyeClosed size={24} />
           )}
         </button>
-        {/* 요소 선택 토글 - 사이드패널에서는 비활성화 */}
-        {onClose && (
-          <button
-            className={`${styles.tabBtn} ${isPicking ? styles.activePreview : ''}`}
-            onClick={handlePickerToggle}
-            title={isPicking ? '요소 선택 종료(Esc)' : '요소 선택'}
-          >
-            <Crosshair size={24} />
-          </button>
-        )}
         <button 
           className={`${styles.tabBtn} ${isDeploying ? styles.loading : ''}`}
           onClick={handleDeploy}
@@ -252,10 +224,9 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
         </button>
       </div>
 
-      {/* divider */}
-      <div className={styles.divider}></div>
-
       <div className={styles.tabBar}>
+        {/* divider */}
+        <div className={styles.divider}></div>
         <button 
           className={`${styles.tabBtn} ${activeTab === TABS.CHAT ? styles.active : ''}`}
           onClick={() => switchTab(TABS.CHAT)}

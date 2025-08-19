@@ -57,9 +57,24 @@ export default function SidePanelApp() {
   }, []);
 
   return (
-    <div className={styles.sidePanel} style={{ width: '100%', height: '100vh' }}>
-      <PanelHeader />
-      <div className={styles.panelContent}>
+    <div style={{ 
+      width: '100%', 
+      height: '100vh', 
+      display: 'flex', 
+      flexDirection: 'column',
+    }}>
+      {/* Header at the top */}
+      <div style={{ flexShrink: 0 }}>
+        <PanelHeader />
+      </div>
+      
+      {/* Content area below header */}
+      <div style={{ 
+        flex: 1, 
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column'
+      }}>
         <div className={`${styles.tabContent} ${activeTab === TABS.CODE ? styles.active : ''}`}>
           <CodeEditTab />
         </div>
