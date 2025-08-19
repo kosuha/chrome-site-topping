@@ -3,13 +3,13 @@ import styles from '../styles/SidePanel.module.css';
 import { TABS } from '../utils/constants';
 import { useAppContext } from '../contexts/AppContext';
 import { ArrowRightFromLine, BotMessageSquare, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigRight, Crosshair, CodeXml, Loader2, Check, X } from 'lucide-react';
-import { applyCodeToPage, disablePreview } from '../services/codePreview';
 import { useDebounce } from '../hooks/useDebounce';
 import { SiteIntegrationService } from '../services/siteIntegration';
-import { enableElementInspector, disableElementInspector, isElementInspectorActive } from '../services/elementInspector';
+import { useSidePanelMessage } from '../hooks/useSidePanelMessage';
+import { createSidePanelCodePreviewService } from '../services/sidePanelCodePreview';
 
 interface PanelHeaderProps {
-  onClose: () => void;
+  onClose?: () => void; // 사이드패널에서는 선택적
 }
 
 export default function PanelHeader({ onClose }: PanelHeaderProps) {
@@ -20,8 +20,12 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
   const [deployFailed, setDeployFailed] = useState(false);
   const siteService = SiteIntegrationService.getInstance();
   
-  // 요소 선택(인스펙터) 상태
-  const [isPicking, setIsPicking] = useState(false);
+  // 사이드패널용 메시지 패싱
+  const { sendMessageToActiveTab } = useSidePanelMessage();
+  const codePreviewService = createSidePanelCodePreviewService(sendMessageToActiveTab);
+  
+  // 요소 선택(인스펙터) 상태 - 사이드패널에서는 비활성화
+  const [isPicking] = useState(false);
   
   // 프리뷰 토글 상태 보호
   const [isToggling, setIsToggling] = useState(false);
@@ -46,9 +50,19 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
       setDeploySuccess(false);
       setDeployFailed(false);
 
+      // 현재 탭 정보 가져오기
+      const tabInfo = await sendMessageToActiveTab({ type: 'GET_PAGE_INFO' });
+      
+      if (!tabInfo.success) {
+        console.error('탭 정보를 가져올 수 없습니다:', tabInfo.error);
+        setDeployFailed(true);
+        return;
+      }
+
+      const currentDomain = tabInfo.domain;
+      
       // 현재 도메인에 해당하는 사이트 찾기
       const sites = await siteService.getUserSites();
-      const currentDomain = window.location.hostname;
       const currentSite = Array.isArray(sites) ? sites.find((site: any) => site.domain === currentDomain) : null;
 
       if (!currentSite) {
@@ -89,11 +103,9 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
     
     try {
       if (state.isPreviewMode) {
-        disablePreview();
-        // DOM 복구 완료까지 충분한 대기
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await codePreviewService.removeCode();
       } else {
-        await applyCodeToPage(state.editorCode.css, state.editorCode.javascript);
+        await codePreviewService.applyCode(state.editorCode.css, state.editorCode.javascript);
       }
       actions.togglePreviewMode();
     } finally {
@@ -101,22 +113,16 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
     }
   };
 
-  // 요소 선택 토글
+  // 요소 선택 토글 (사이드패널에서는 비활성화)
   const handlePickerToggle = () => {
-    const nowActive = isElementInspectorActive();
-    if (nowActive) {
-      disableElementInspector();
-      setIsPicking(false);
-    } else {
-      enableElementInspector();
-      setIsPicking(true);
-    }
+    // 사이드패널에서는 요소 선택 기능을 지원하지 않음
+    console.log('[SidePanel] Element picker not supported in side panel mode');
   };
 
   // 프리뷰 모드일 때 디바운스된 코드 변경시 적용
   useEffect(() => {
     if (state.isPreviewMode) {
-      applyCodeToPage(debouncedCSS, debouncedJS);
+      codePreviewService.applyCode(debouncedCSS, debouncedJS);
     }
   }, [debouncedCSS, debouncedJS, state.isPreviewMode]);
 
@@ -141,33 +147,27 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
   }, [deployFailed]);
 
 
-  // 요소 선택 모드 메시지 동기화 및 언마운트 정리
+  // 사이드패널에서는 요소 선택 관련 이벤트 리스너 불필요
   useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      if (e.source !== window || !e.data) return;
-      const data = e.data as any;
-      if (data.type === 'SITE_TOPPING_PICKER_START') setIsPicking(true);
-      if (data.type === 'SITE_TOPPING_PICKER_STOP' || data.type === 'SITE_TOPPING_ELEMENT_PICKED') setIsPicking(false);
-    };
-    window.addEventListener('message', handler);
-    return () => {
-      window.removeEventListener('message', handler);
-      disableElementInspector();
-    };
+    // 사이드패널에서는 요소 선택 기능이 비활성화되므로 빈 useEffect
   }, []);
 
   const handleClose = () => {
-    // 패널 닫을 때 인스펙터 종료
-    disableElementInspector();
-    onClose();
+    // 사이드패널에서는 닫기 기능 불필요 (네이티브 사이드패널이 처리)
+    if (onClose) {
+      onClose();
+    }
   };
 
   return (
     <div className={styles.panelHeader}>
       <div className={styles.tabBar}>
-        <button className={styles.tabBtn} onClick={handleClose}>
-          <ArrowRightFromLine size={24} />
-        </button>
+        {/* 닫기 버튼은 사이드패널에서 선택적으로만 표시 */}
+        {onClose && (
+          <button className={styles.tabBtn} onClick={handleClose}>
+            <ArrowRightFromLine size={24} />
+          </button>
+        )}
         <button 
           className={`${styles.tabBtn} ${state.isPreviewMode ? styles.activePreview : ''} ${isToggling ? styles.loading : ''}`}
           onClick={handlePreviewToggle}
@@ -180,14 +180,16 @@ export default function PanelHeader({ onClose }: PanelHeaderProps) {
             state.isPreviewMode ? <Eye size={24} /> : <EyeClosed size={24} />
           )}
         </button>
-        {/* 요소 선택 토글 */}
-        <button
-          className={`${styles.tabBtn} ${isPicking ? styles.activePreview : ''}`}
-          onClick={handlePickerToggle}
-          title={isPicking ? '요소 선택 종료(Esc)' : '요소 선택'}
-        >
-          <Crosshair size={24} />
-        </button>
+        {/* 요소 선택 토글 - 사이드패널에서는 비활성화 */}
+        {onClose && (
+          <button
+            className={`${styles.tabBtn} ${isPicking ? styles.activePreview : ''}`}
+            onClick={handlePickerToggle}
+            title={isPicking ? '요소 선택 종료(Esc)' : '요소 선택'}
+          >
+            <Crosshair size={24} />
+          </button>
+        )}
         <button 
           className={`${styles.tabBtn} ${isDeploying ? styles.loading : ''}`}
           onClick={handleDeploy}

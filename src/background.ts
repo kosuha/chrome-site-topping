@@ -1,4 +1,3 @@
-import { toggleSidePanel } from './services/chrome';
 import { supabase } from './services/supabase';
 
 // Initialize declarativeNetRequest rules
@@ -6,9 +5,15 @@ chrome.runtime.onInstalled.addListener(async () => {
     console.log('[Background] Extension installed, static blocking rules from rules.json are active');
 });
 
+// Handle extension icon click to open side panel
 chrome.action.onClicked.addListener(async (tab) => {
     if (tab.id) {
-        await toggleSidePanel(tab.id);
+        try {
+            // Open the side panel for the current tab
+            await chrome.sidePanel.open({ tabId: tab.id });
+        } catch (error) {
+            console.error('[Background] Failed to open side panel:', error);
+        }
     }
 });
 

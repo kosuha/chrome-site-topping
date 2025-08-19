@@ -27,7 +27,8 @@ export default defineConfig(({ command, mode }) => {
       rollupOptions: {
         input: {
           background: 'src/background.ts',
-          content: 'src/content.tsx'
+          content: 'src/content.tsx',
+          sidepanel: 'src/sidepanel.tsx'
         },
         output: {
           manualChunks(id) {
