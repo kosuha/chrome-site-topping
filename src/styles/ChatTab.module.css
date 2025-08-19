@@ -325,11 +325,17 @@
   flex: 1;
   display: flex;
   width: 100%;
+  /* ensure child can shrink to enable inner scroll */
+  min-height: 0;
+  /* prevent double scrollbars on parent */
+  overflow: hidden;
 }
 
 .messagesArea {
   flex: 1;
-  overflow-y: overlay;
+  /* use widely supported scrolling */
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 16px 16px 0 16px;
   display: flex;
   flex-direction: column;

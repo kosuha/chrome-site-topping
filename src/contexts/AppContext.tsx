@@ -441,13 +441,52 @@ export function AppProvider({ children }: AppProviderProps) {
           try {
             const messagesResponse = await aiService.getThreadMessages(latestThread.id);
             if (messagesResponse.status === 'success' && messagesResponse.data.messages) {
-              const serverMessages = messagesResponse.data.messages.map(msg => ({
-                id: msg.id,
-                type: msg.message_type as 'user' | 'assistant',
-                content: msg.message,
-                timestamp: new Date(msg.created_at),
-                status: (msg.status as any) || 'completed'
-              }));
+              // ThreadManager와 동일한 변환 로직으로 metadata.changes 및 image_data 복원
+              const serverMessages = messagesResponse.data.messages.map((msg) => {
+                const images: string[] | undefined = (() => {
+                  try {
+                    if (!msg.image_data) return undefined;
+                    const raw = msg.image_data as any;
+                    if (typeof raw === 'string') {
+                      const parsed = (() => { try { return JSON.parse(raw); } catch { return null; } })();
+                      if (Array.isArray(parsed)) return parsed.filter(Boolean);
+                      if (typeof parsed === 'string' && parsed.trim()) return [parsed];
+                      if (raw.trim()) return [raw];
+                      return undefined;
+                    }
+                    if (Array.isArray(raw)) return raw.filter(Boolean);
+                    if ((raw as any).images && Array.isArray((raw as any).images)) return (raw as any).images.filter(Boolean);
+                    return undefined;
+                  } catch (e) {
+                    console.warn('image_data 파싱 실패:', e);
+                    return undefined;
+                  }
+                })();
+
+                const changes = (() => {
+                  try {
+                    const meta = (msg as any).metadata;
+                    if (!meta) return undefined;
+                    const metadata = typeof meta === 'string' ? JSON.parse(meta) : meta;
+                    return metadata.changes || undefined;
+                  } catch (error) {
+                    console.warn('메타데이터 파싱 실패:', error);
+                    return undefined;
+                  }
+                })();
+
+                const serverStatus = (msg.status as 'pending' | 'in_progress' | 'completed' | 'error') || 'completed';
+
+                return {
+                  id: msg.id,
+                  type: msg.message_type as 'user' | 'assistant',
+                  content: msg.message,
+                  timestamp: new Date(msg.created_at),
+                  status: (serverStatus === 'error' ? 'failed' : serverStatus) as 'pending' | 'in_progress' | 'completed' | 'failed',
+                  changes,
+                  images,
+                } as ChatMessage;
+              });
 
               dispatch({ type: 'LOAD_THREAD_MESSAGES', payload: { 
                 threadId: latestThread.id, 
