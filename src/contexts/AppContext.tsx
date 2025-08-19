@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, ReactNode, useMemo, useEffect } from 'react';
+import React, { createContext, useContext, useReducer, ReactNode, useMemo, useEffect, useRef } from 'react';
 import { aiService } from '../services/aiService';
 import { getAllVersions, reconstructFromVersions } from '../services/versioning';
 import { supabase } from '../services/supabase';
@@ -413,13 +413,15 @@ export function AppProvider({ children }: AppProviderProps) {
   // 새로운 사용자 데이터 로드 함수
   const loadUserData = async (_user: any) => {
     try {
-      console.log('🔄 사용자 데이터 로드 시작');
+      console.log('🔄 [loadUserData] 사용자 데이터 로드 시작');
       dispatch({ type: 'SET_LOADING', payload: true });
 
       // 스레드 목록 로드
-      console.log('📋 스레드 목록 로드 중...');
+      console.log('📋 [loadUserData] 스레드 목록 로드 중...');
       const threadsResponse = await aiService.getThreads();
-      console.log('📋 스레드 응답:', threadsResponse);
+      console.log('📋 [loadUserData] 스레드 응답:', threadsResponse);
+      console.log('📋 [loadUserData] 스레드 상태:', threadsResponse?.status);
+      console.log('📋 [loadUserData] 스레드 개수:', threadsResponse?.data?.threads?.length || 0);
       
       if (threadsResponse.status === 'success' && threadsResponse.data.threads) {
         const serverThreads = threadsResponse.data.threads.map(thread => ({
@@ -499,27 +501,35 @@ export function AppProvider({ children }: AppProviderProps) {
 
           // 코드 히스토리 전체 로드
           try {
+            console.log('🌐 [loadUserData] 코드 히스토리 로드 시작');
             const currentSiteCode = await aiService.getCurrentSiteCode();
-            console.log('🌐 현재 사이트 코드:', currentSiteCode);
+            console.log('🌐 [loadUserData] 현재 사이트 코드:', currentSiteCode);
             
             if (currentSiteCode) {
               // 모든 버전 가져오기
+              console.log('📝 [loadUserData] 서버에서 코드 버전 조회 중...');
               const allVersions = await getAllVersions(currentSiteCode);
-              console.log('📝 모든 코드 버전:', allVersions.length, '개');
+              console.log('📝 [loadUserData] 서버 코드 버전:', allVersions.length, '개');
+              console.log('📝 [loadUserData] 버전 상세:', allVersions.map(v => ({ id: v.id, type: v.type, created_at: v.created_at })));
               
               if (allVersions.length > 0) {
                 // 버전들을 히스토리로 재구성
+                console.log('🔄 [loadUserData] 코드 히스토리 재구성 중...');
                 const reconstructedSteps = reconstructFromVersions(allVersions);
-                console.log('🔄 재구성된 히스토리 스텝:', reconstructedSteps.length, '개');
+                console.log('🔄 [loadUserData] 재구성된 히스토리 스텝:', reconstructedSteps.length, '개');
+                console.log('🔄 [loadUserData] 최신 코드 미리보기 - JS:', reconstructedSteps[reconstructedSteps.length - 1]?.javascript?.substring(0, 100) || 'empty');
+                console.log('🔄 [loadUserData] 최신 코드 미리보기 - CSS:', reconstructedSteps[reconstructedSteps.length - 1]?.css?.substring(0, 100) || 'empty');
                 
                 // 히스토리 스택 초기화 후 재구성
+                console.log('🗑️ [loadUserData] 기존 히스토리 스택 초기화');
                 dispatch({ type: 'CLEAR_CODE_HISTORY' });
                 
+                console.log('📚 [loadUserData] 히스토리 스택에 버전들 추가 중...');
                 reconstructedSteps.forEach((step, index) => {
                   dispatch({ type: 'PUSH_CODE_HISTORY', payload: {
                     javascript: step.javascript,
                     css: step.css,
-                    description: `버전 ${index + 1}`,
+                    description: `서버 복원 ${index + 1}`,
                     isSuccessful: true
                   }});
                 });
@@ -527,15 +537,22 @@ export function AppProvider({ children }: AppProviderProps) {
                 // 최신 코드를 에디터에 설정
                 const latestStep = reconstructedSteps[reconstructedSteps.length - 1];
                 if (latestStep) {
-                  dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'javascript', code: latestStep.javascript } });
-                  dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'css', code: latestStep.css } });
+                  console.log('✏️ [loadUserData] 최신 코드를 에디터에 적용');
+                  dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'javascript', code: latestStep.javascript || '' } });
+                  dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'css', code: latestStep.css || '' } });
+                  console.log('✅ [loadUserData] 코드 복원 완료 - JS 길이:', latestStep.javascript?.length || 0, ', CSS 길이:', latestStep.css?.length || 0);
+                } else {
+                  console.log('⚠️ [loadUserData] 최신 스텝이 없음');
                 }
               } else {
-                console.log('📝 코드 버전 없음');
+                console.log('📝 [loadUserData] 코드 버전 없음 - 히스토리 복원 건너뜀');
               }
+            } else {
+              console.log('🌐 [loadUserData] 사이트 코드 없음 - 히스토리 복원 건너뜀');
             }
           } catch (error) {
-            console.error('코드 버전 로드 실패:', error);
+            console.error('💥 [loadUserData] 코드 버전 로드 실패:', error);
+            console.error('💥 [loadUserData] 코드 로드 스택:', error instanceof Error ? error.stack : 'No stack trace');
           }
         }
       }
@@ -547,29 +564,51 @@ export function AppProvider({ children }: AppProviderProps) {
     }
   };
 
+  // 초기 로딩 상태 추적
+  const initialLoadRef = useRef(false);
+  
   // 초기 로딩 시 인증된 사용자 데이터 로드
   useEffect(() => {
     const loadInitialUserData = async () => {
       try {
-        console.log('🚀 초기 사용자 데이터 로드 시도');
-        // Supabase에서 현재 세션 확인
-        const { data: { session } } = await supabase.auth.getSession();
+        if (initialLoadRef.current) {
+          console.log('⏭️ [AppContext] 이미 초기 로딩 완료, 건너뜀');
+          return;
+        }
         
-        console.log('🔐 현재 세션:', session?.user?.id ? `사용자 ${session.user.id}` : '로그인 안됨');
+        console.log('🚀 [AppContext] 초기 사용자 데이터 로드 시도');
+        initialLoadRef.current = true;
+        
+        // Supabase에서 현재 세션 확인
+        console.log('🔍 [AppContext] Supabase 세션 확인 중...');
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.error('❌ [AppContext] 세션 확인 실패:', sessionError);
+          return;
+        }
+        
+        console.log('🔐 [AppContext] 현재 세션:', session?.user?.id ? `사용자 ${session.user.id}` : '로그인 안됨');
         
         if (session?.user) {
-          console.log('👤 로그인된 사용자 발견, 데이터 로드 시작');
+          console.log('👤 [AppContext] 로그인된 사용자 발견, 데이터 로드 시작');
+          console.log('📊 [AppContext] 로드 전 상태 - 스레드:', state.chatThreads.length, '개');
+          
           await loadUserData(session.user);
+          
+          console.log('✅ [AppContext] 사용자 데이터 로드 완료');
         } else {
-          console.log('❌ 로그인된 사용자 없음');
+          console.log('❌ [AppContext] 로그인된 사용자 없음 - 히스토리 로드 건너뜀');
         }
       } catch (error) {
-        console.error('초기 사용자 데이터 로드 실패:', error);
+        console.error('💥 [AppContext] 초기 사용자 데이터 로드 실패:', error);
+        console.error('💥 [AppContext] 에러 스택:', error instanceof Error ? error.stack : 'No stack trace');
       }
     };
 
-    loadInitialUserData();
-  }, []);
+    // 약간의 지연을 두고 실행 (다른 초기화와의 충돌 방지)
+    setTimeout(loadInitialUserData, 100);
+  }, []); // 초기화는 한 번만
 
   // 사용자 변경 이벤트 리스너
   useEffect(() => {
@@ -581,11 +620,16 @@ export function AppProvider({ children }: AppProviderProps) {
         // 로그아웃 시 모든 사용자 관련 상태 초기화
         console.log('🗑️ AppContext 상태 초기화 (로그아웃)');
         dispatch({ type: 'RESET_STATE' });
+        initialLoadRef.current = false; // 초기화 플래그 리셋
       } else if (action === 'login' || action === 'switch') {
-        // 로그인/사용자 전환 시 상태 초기화 후 새 데이터 로드
-        console.log('🗑️ AppContext 상태 초기화 (로그인/전환)');
-        dispatch({ type: 'RESET_STATE' });
-        loadUserData(user);
+        // 초기 로딩이 이미 완료되었다면 사용자 변경 이벤트에서만 처리
+        if (initialLoadRef.current) {
+          console.log('🔄 AppContext 사용자 변경으로 인한 데이터 로드');
+          dispatch({ type: 'RESET_STATE' });
+          loadUserData(user);
+        } else {
+          console.log('⏭️ AppContext 초기 로딩 중이므로 사용자 변경 이벤트 건너뜀');
+        }
       }
     };
 

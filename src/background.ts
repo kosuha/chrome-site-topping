@@ -77,13 +77,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // 비동기 응답을 위해 true 반환
     }
 
-    // 현재 도메인 가져오기 요청 처리
-    if (message.type === 'GET_CURRENT_DOMAIN' && sender.tab?.id) {
-        getCurrentDomain(sender.tab.id)
+    // 현재 도메인 가져오기 요청 처리 (sidepanel용)
+    if (message.type === 'GET_CURRENT_DOMAIN') {
+        getCurrentDomain()
             .then((domain) => {
+                console.log('[Background] 도메인 조회 성공:', domain);
                 sendResponse({ success: true, domain });
             })
             .catch((error) => {
+                console.error('[Background] 도메인 조회 실패:', error);
                 sendResponse({ success: false, error: error.message });
             });
         return true; // 비동기 응답을 위해 true 반환
@@ -98,20 +100,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 });
 
-async function getCurrentDomain(tabId: number): Promise<string | null> {
+async function getCurrentDomain(): Promise<string | null> {
     try {
+        console.log('[Background] 활성 탭 도메인 조회 중...');
+        
+        // 현재 활성화된 탭 정보 가져오기
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
         if (!tab?.url) {
-            // 특정 탭 ID로 탭 정보 가져오기
-            const specificTab = await chrome.tabs.get(tabId);
-            if (!specificTab?.url) return null;
-            
-            const url = new URL(specificTab.url);
-            return url.hostname;
+            console.warn('[Background] 활성 탭 URL을 찾을 수 없음');
+            return null;
+        }
+
+        console.log('[Background] 활성 탭 URL:', tab.url);
+        
+        // chrome://이나 edge://같은 브라우저 내부 페이지는 제외
+        if (tab.url.startsWith('chrome://') || tab.url.startsWith('edge://') || tab.url.startsWith('about:')) {
+            console.warn('[Background] 브라우저 내부 페이지는 지원하지 않음:', tab.url);
+            return null;
         }
 
         const url = new URL(tab.url);
-        return url.hostname;
+        const domain = url.hostname;
+        console.log('[Background] 추출된 도메인:', domain);
+        
+        return domain;
     } catch (error) {
         console.error('[Background] Error getting current domain:', error);
         return null;
