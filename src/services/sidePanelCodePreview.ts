@@ -49,20 +49,16 @@ export class SidePanelCodePreviewService {
 
   async removeCode(): Promise<boolean> {
     try {
-      // CSS 제거
-      const cssResult = await this.sendMessage({
-        type: 'INJECT_CSS',
-        css: ''
+      // 완전한 원상복구를 위해 disablePreview() 호출
+      const result = await this.sendMessage({
+        type: 'DISABLE_PREVIEW'
       });
-
-      // JS는 이미 실행되었으므로 완전히 제거하기 어려움
-      // 페이지 새로고침이 필요할 수 있음
       
       this.currentCSS = '';
       this.currentJS = '';
       this.isApplied = false;
       
-      return cssResult.success;
+      return result.success;
     } catch (error) {
       console.error('[SidePanel] Code removal failed:', error);
       return false;

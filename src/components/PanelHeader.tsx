@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import styles from '../styles/SidePanel.module.css';
 import { TABS } from '../utils/constants';
 import { useAppContext } from '../contexts/AppContext';
-import { BotMessageSquare, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigRight, CodeXml, Loader2, Check, X } from 'lucide-react';
+import { BotMessageSquare, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigRight, CodeXml, Loader2, Check, X, Target } from 'lucide-react';
 import { useDebounce } from '../hooks/useDebounce';
 import { SiteIntegrationService } from '../services/siteIntegration';
 import { useSidePanelMessage } from '../hooks/useSidePanelMessage';
@@ -24,7 +24,8 @@ export default function PanelHeader({}: PanelHeaderProps) {
   const { sendMessageToActiveTab } = useSidePanelMessage();
   const codePreviewService = createSidePanelCodePreviewService(sendMessageToActiveTab);
   
-  // 사이드패널에서는 요소 선택 기능 없음
+  // 요소 인스펙터 상태
+  const [isInspectorActive, setIsInspectorActive] = useState(false);
   
   // 프리뷰 토글 상태 보호
   const [isToggling, setIsToggling] = useState(false);
@@ -112,7 +113,24 @@ export default function PanelHeader({}: PanelHeaderProps) {
     }
   };
 
-  // 사이드패널에서는 요소 선택 기능 없음
+  // 요소 인스펙터 토글 함수
+  const handleInspectorToggle = async () => {
+    try {
+      if (isInspectorActive) {
+        // 인스펙터 비활성화
+        await sendMessageToActiveTab({ type: 'DISABLE_ELEMENT_INSPECTOR' });
+        setIsInspectorActive(false);
+      } else {
+        // 인스펙터 활성화
+        const result = await sendMessageToActiveTab({ type: 'ENABLE_ELEMENT_INSPECTOR' });
+        if (result.success) {
+          setIsInspectorActive(true);
+        }
+      }
+    } catch (error) {
+      console.error('인스펙터 토글 실패:', error);
+    }
+  };
 
   // 프리뷰 모드일 때 디바운스된 코드 변경시 적용
   useEffect(() => {
@@ -142,9 +160,43 @@ export default function PanelHeader({}: PanelHeaderProps) {
   }, [deployFailed]);
 
 
-  // 사이드패널에서는 요소 선택 관련 이벤트 리스너 불필요
+  // Chrome extension 메시지와 window 메시지 리스너 설정
   useEffect(() => {
-    // 사이드패널에서는 요소 선택 기능이 비활성화되므로 빈 useEffect
+    const lastPickRef = { selector: '', ts: 0 };
+
+    // Chrome extension runtime 메시지 리스너
+    const handleRuntimeMessage = (message: any) => {
+      if (message.type === 'SITE_TOPPING_ELEMENT_PICKED') {
+        const selector = message.selector;
+        if (selector) {
+          const now = Date.now();
+          if (selector === lastPickRef.selector && now - lastPickRef.ts < 250) {
+            return;
+          }
+          lastPickRef.selector = selector;
+          lastPickRef.ts = now;
+          // 단일 브로드캐스트: 각 탭은 자신이 활성일 때만 처리
+          window.postMessage({ type: 'SITE_TOPPING_ELEMENT_PICKED', selector }, '*');
+          setIsInspectorActive(false);
+        }
+      } else if (message.type === 'SITE_TOPPING_PICKER_STOP') {
+        setIsInspectorActive(false);
+      }
+    };
+
+    const handleWindowMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'SITE_TOPPING_PICKER_STOP') {
+        setIsInspectorActive(false);
+      }
+    };
+
+    chrome.runtime.onMessage.addListener(handleRuntimeMessage);
+    window.addEventListener('message', handleWindowMessage);
+
+    return () => {
+      chrome.runtime.onMessage.removeListener(handleRuntimeMessage);
+      window.removeEventListener('message', handleWindowMessage);
+    };
   }, []);
 
   return (
@@ -175,6 +227,14 @@ export default function PanelHeader({}: PanelHeaderProps) {
           ) : (
             <Upload size={24} />
           )}
+        </button>
+
+        <button 
+          className={`${styles.tabBtn} ${isInspectorActive ? styles.active : ''}`}
+          onClick={handleInspectorToggle}
+          title={isInspectorActive ? "요소 선택 종료" : "요소 선택"}
+        >
+          <Target size={24} />
         </button>
 
         {/* 전역 히스토리 제어 버튼 */}

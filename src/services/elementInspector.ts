@@ -52,8 +52,11 @@ function ensureOverlay() {
     boxShadow: '0 2px 8px rgba(0,0,0,.2)'
   } as CSSStyleDeclaration);
 
-  document.body.appendChild(boxEl);
-  document.body.appendChild(labelEl);
+  // body에 transform이 걸린 페이지에서 position: fixed 기준이 어긋나는 문제를 피하기 위해
+  // 가능한 한 상위인 documentElement(html)에 추가한다.
+  const host = document.documentElement || document.body;
+  host.appendChild(boxEl);
+  host.appendChild(labelEl);
 }
 
 function clearOverlay() {
@@ -69,6 +72,18 @@ function isOurUI(el: Element | null) {
   if (root && (el === root || root.contains(el))) return true;
   if ((el as HTMLElement).id && (el as HTMLElement).id.startsWith(EXT)) return true;
   return false;
+}
+
+// html(documentElement)에 transform이 적용된 경우, fixed 요소의 기준이 이동할 수 있어 보정
+function getViewportAdjustment() {
+  const de = document.documentElement;
+  if (!de) return { x: 0, y: 0 };
+  const cs = getComputedStyle(de);
+  if (cs.transform && cs.transform !== 'none') {
+    const rect = de.getBoundingClientRect();
+    return { x: -rect.left, y: -rect.top };
+  }
+  return { x: 0, y: 0 };
 }
 
 function getCssSelector(el: Element): string {
@@ -118,8 +133,9 @@ function getCssSelector(el: Element): string {
 function updateUIFor(el: Element) {
   if (!boxEl || !labelEl) return;
   const r = (el as HTMLElement).getBoundingClientRect();
-  boxEl.style.left = `${r.left}px`;
-  boxEl.style.top = `${r.top}px`;
+  const adj = getViewportAdjustment();
+  boxEl.style.left = `${r.left + adj.x}px`;
+  boxEl.style.top = `${r.top + adj.y}px`;
   boxEl.style.width = `${Math.max(0, r.width)}px`;
   boxEl.style.height = `${Math.max(0, r.height)}px`;
 
@@ -128,9 +144,9 @@ function updateUIFor(el: Element) {
 
   const pad = 6;
   const labelHeight = 24;
-  let lx = Math.min(window.innerWidth - 12, Math.max(pad, r.left));
-  let ly = r.top - labelHeight - 6;
-  if (ly < pad) ly = r.bottom + 6;
+  let lx = Math.min(window.innerWidth - 12, Math.max(pad, r.left + adj.x));
+  let ly = r.top + adj.y - labelHeight - 6;
+  if (ly < pad) ly = r.bottom + adj.y + 6;
   labelEl.style.left = `${lx}px`;
   labelEl.style.top = `${ly}px`;
 }
@@ -158,6 +174,11 @@ function onClick(e: MouseEvent) {
   if (!target) return;
   const selector = getCssSelector(target);
   try {
+    // Chrome extension API를 통해 사이드패널로 메시지 전송
+    chrome.runtime.sendMessage({ type: 'SITE_TOPPING_ELEMENT_PICKED', selector });
+  } catch {}
+  try {
+    // 기존 window.postMessage도 유지 (호환성)
     window.postMessage({ type: 'SITE_TOPPING_ELEMENT_PICKED', selector }, '*');
   } catch {}
   disableElementInspector();
@@ -268,6 +289,9 @@ export function enableElementInspector() {
   document.addEventListener('keydown', onKeyDownShift, true);
   document.addEventListener('keyup', onKeyUp, true);
   try {
+    chrome.runtime.sendMessage({ type: 'SITE_TOPPING_PICKER_START' });
+  } catch {}
+  try {
     window.postMessage({ type: 'SITE_TOPPING_PICKER_START' }, '*');
   } catch {}
 }
@@ -285,6 +309,9 @@ export function disableElementInspector() {
   setExtensionNonInteractive(false);
   updateInteractiveModeIndicator(false);
   lastTarget = null;
+  try {
+    chrome.runtime.sendMessage({ type: 'SITE_TOPPING_PICKER_STOP' });
+  } catch {}
   try {
     window.postMessage({ type: 'SITE_TOPPING_PICKER_STOP' }, '*');
   } catch {}

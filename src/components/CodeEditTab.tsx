@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { css } from '@codemirror/lang-css';
@@ -22,6 +22,7 @@ export default function CodeEditTab() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const lastPickRef = useRef<{ selector: string; ts: number }>({ selector: '', ts: 0 });
 
   // 요소 선택 결과를 활성 탭이 Code일 때 코드 에디터에 삽입
   useEffect(() => {
@@ -31,12 +32,28 @@ export default function CodeEditTab() {
       if (data.type === 'SITE_TOPPING_ELEMENT_PICKED' && state.activeTab === 'code') {
         const selector = String(data.selector || '').trim();
         if (!selector) return;
+        const now = Date.now();
+        if (selector === lastPickRef.current.selector && now - lastPickRef.current.ts < 250) {
+          return;
+        }
+        lastPickRef.current = { selector, ts: now };
         if (language === 'css') {
-          const snippet = `\n/* picked */\n${selector} {\n  /* TODO: style here */\n}\n`;
-          actions.setEditorCode('css', (state.editorCode.css || '') + snippet);
+          const snippet = `/* picked */\n${selector} {\n  /* TODO: style here */\n}\n`;
+          const current = state.editorCode.css || '';
+          // 첫 줄이 비어있으면 제거 후 상단에 삽입
+          const normalized = current.trim().length === 0 ? '' : current.replace(/^(?:\s*\n)+/, '');
+          const withSep = normalized
+            ? normalized + (normalized.endsWith('\n') ? '' : '\n\n')
+            : '';
+          actions.setEditorCode('css', withSep + snippet);
         } else {
-          const snippet = `\n// picked\nconst el = document.querySelector(${JSON.stringify(selector)});\nif (el) {\n  // TODO: manipulate element\n}\n`;
-          actions.setEditorCode('javascript', (state.editorCode.javascript || '') + snippet);
+          const snippet = `// picked\nconst el = document.querySelector(${JSON.stringify(selector)});\nif (el) {\n  // TODO: manipulate element\n}\n`;
+          const current = state.editorCode.javascript || '';
+          const normalized = current.trim().length === 0 ? '' : current.replace(/^(?:\s*\n)+/, '');
+          const withSep = normalized
+            ? normalized + (normalized.endsWith('\n') ? '' : '\n\n')
+            : '';
+          actions.setEditorCode('javascript', withSep + snippet);
         }
       }
     };

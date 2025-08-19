@@ -15,6 +15,7 @@ export default function ChatTab() {
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLDivElement>(null);
+  const lastPickRef = useRef<{ selector: string; ts: number }>({ selector: '', ts: 0 });
 
   // 커서를 contentEditable 끝으로 이동
   const setCaretToEnd = (el: HTMLElement) => {
@@ -38,7 +39,17 @@ export default function ChatTab() {
       if (data.type === 'SITE_TOPPING_ELEMENT_PICKED' && state.activeTab === 'chat') {
         const selector = String(data.selector || '');
         if (!selector) return;
+        const now = Date.now();
+        if (selector === lastPickRef.current.selector && now - lastPickRef.current.ts < 250) {
+          return;
+        }
+        lastPickRef.current = { selector, ts: now };
         setInputValue(prev => {
+          const trimmedPrev = prev.trimEnd();
+          const tokens = trimmedPrev.split(/\s+/);
+          const lastTokenRaw = tokens[tokens.length - 1] || '';
+          const lastToken = lastTokenRaw.replace(/^'+|'+$/g, '');
+          if (lastToken === selector) return prev;
           const sep = prev && !prev.endsWith(' ') ? ' ' : '';
           const next = `${prev}${sep}'${selector}'`.slice(0, 2000);
           // contentEditable 동기화
