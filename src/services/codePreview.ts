@@ -37,6 +37,25 @@ function getExtensionRoot(): HTMLElement | null {
 function captureBaselineIfNeeded(): void {
   if (baselineSnapshot) return;
   try {
+    // 문서 준비 상태 확인 (로드 완료 전에는 캡처 보류)
+    if (document.readyState !== 'complete') {
+      window.addEventListener('load', () => {
+        setTimeout(() => {
+          try { captureBaselineIfNeeded(); } catch {}
+        }, 100);
+      }, { once: true });
+      return;
+    }
+
+    // DOM 내용이 너무 빈약하면(SSR 스켈레톤/로딩 상태) 잠시 후 재시도
+    const bodyHTML = document.body.innerHTML.trim();
+    if (bodyHTML.length < 200) {
+      setTimeout(() => {
+        try { captureBaselineIfNeeded(); } catch {}
+      }, 300);
+      return;
+    }
+
     // Clone body and exclude extension root to avoid unmounting our UI
     const clone = document.body.cloneNode(true) as HTMLElement;
     const extInClone = (clone.querySelector('#site-topping-root') as HTMLElement) || null;
@@ -76,6 +95,7 @@ function captureBaselineIfNeeded(): void {
       eventListeners: new Map(),
       elementAttributes,
     };
+    console.log('[Site Topping] Baseline captured (size:', baselineSnapshot.bodyHTML.length, ')');
   } catch (e) {
     console.warn('[Site Topping] Failed to capture baseline snapshot:', e);
   }
@@ -98,7 +118,7 @@ function cleanupHeadExtras(): void {
   }
 }
 
-function restoreBaseline(): void {
+function restoreBaseline(forceFull: boolean = false): void {
   if (!baselineSnapshot || isRestoringBaseline) return;
   isRestoringBaseline = true;
   try {
@@ -110,11 +130,18 @@ function restoreBaseline(): void {
 
     const root = getExtensionRoot();
 
-    // Use gentler restoration approach to preserve animations
-    if (shouldUseGentleRestore()) {
-      performGentleRestore(root);
-    } else {
+    const hasValidBaseline = !!baselineSnapshot && baselineSnapshot.bodyHTML.trim().length > 0;
+
+    // If forceFull is requested, skip gentle path
+    if (forceFull && hasValidBaseline) {
       performFullRestore(root);
+    } else {
+      // Use gentler restoration approach to preserve animations
+      if (!hasValidBaseline || shouldUseGentleRestore()) {
+        performGentleRestore(root);
+      } else {
+        performFullRestore(root);
+      }
     }
 
     // Restore scroll position
@@ -420,7 +447,72 @@ function cleanupExtensionCodeOnly(): void {
   // 4. Notify page context to clean up timers/listeners
   cleanupJavaScriptEffects();
   
+  // 5. 추가로 확장프로그램이 수정한 요소들의 인라인 스타일 정리
+  cleanupInlineStyles();
+  
   // Note: We don't call restoreBaseline() here to preserve user-created elements
+}
+
+function cleanupInlineStyles(): void {
+  try {
+    // 확장프로그램이 추가한 data 속성을 가진 요소들의 인라인 스타일 정리
+    const modifiedElements = document.querySelectorAll('[data-site-topping-modified], [data-site-topping-added]');
+    modifiedElements.forEach(element => {
+      // data-site-topping-added 요소는 완전 제거
+      if (element.hasAttribute('data-site-topping-added')) {
+        element.remove();
+        return;
+      }
+      
+      // data-site-topping-modified 요소는 원본 스타일로 복구
+      const originalStyle = element.getAttribute('data-original-style');
+      if (originalStyle !== null) {
+        if (originalStyle === '') {
+          element.removeAttribute('style');
+        } else {
+          element.setAttribute('style', originalStyle);
+        }
+        element.removeAttribute('data-original-style');
+        element.removeAttribute('data-site-topping-modified');
+      }
+    });
+    
+    // 페이지의 강제 reflow 유발하여 스타일 변경사항 즉시 적용
+    document.body.offsetHeight;
+    
+  } catch (e) {
+    console.warn('[Site Topping] Failed to cleanup inline styles:', e);
+  }
+}
+
+// 매 재적용 전에, 프리뷰를 끄고 다시 켠 것과 동일한 강제 초기화/복구 수행
+async function fullResetForReapply(): Promise<void> {
+  try {
+    // 1) 페이지 컨텍스트에 정지/강제 정리 신호
+    try { window.postMessage({ type: 'SITE_TOPPING_PREVIEW_STOP' }, '*'); } catch {}
+    try { window.postMessage({ type: 'SITE_TOPPING_FORCE_CLEANUP' }, '*'); } catch {}
+    cleanupJavaScriptEffects();
+
+    // 2) 확장 주입물 및 트래킹 정리
+    removeCodeFromPage();
+    stopPreviewObserverAndCleanup();
+    cleanupInlineStyles();
+    cleanupHeadExtras();
+
+    // 3) 베이스라인이 준비되어 있으면 전체 복구 (오프→온과 동일)
+    if (baselineSnapshot && baselineSnapshot.bodyHTML.trim().length > 0) {
+      restoreBaseline(true);
+    }
+
+    // 4) 추가적인 전역 상태 강제 정리
+    forceCleanupJavaScriptState();
+
+    // 5) 리플로/짧은 안정화 대기
+    document.body.offsetHeight;
+    await new Promise(resolve => setTimeout(resolve, 80));
+  } catch (e) {
+    console.warn('[Site Topping] fullResetForReapply error:', e);
+  }
 }
 
 export async function applyCodeToPage(css: string, js: string): Promise<void> {
@@ -435,9 +527,9 @@ export async function applyCodeToPage(css: string, js: string): Promise<void> {
   try {
     // Ensure we have a clean baseline of the page for future full restore
     captureBaselineIfNeeded();
-    
-    // Clean only extension code, preserve user-created elements
-    cleanupExtensionCodeOnly();
+
+    // 프리뷰를 끄고 다시 켠 것과 동일한 강제 초기화/복구를 먼저 수행
+    await fullResetForReapply();
     
     // Start tracking nodes added during this preview session
     startPreviewObserver();
@@ -445,6 +537,7 @@ export async function applyCodeToPage(css: string, js: string): Promise<void> {
     // Notify page context that a new preview session starts
     try { window.postMessage({ type: 'SITE_TOPPING_PREVIEW_START' }, '*'); } catch {}
 
+    // CSS와 JS 모두 비어있지 않을 때만 적용
     if (css.trim()) {
       applyCSSCode(css);
     }
@@ -458,20 +551,47 @@ export async function applyCodeToPage(css: string, js: string): Promise<void> {
 }
 
 export function removeCodeFromPage(): void {
+  // 확장프로그램이 생성한 모든 style 및 script 요소 제거
+  const extensionStyles = document.querySelectorAll(`style[id^="${EXTENSION_PREFIX}"], style[data-site-topping]`);
+  extensionStyles.forEach(el => {
+    try {
+      el.remove();
+    } catch {}
+  });
+
+  const extensionScripts = document.querySelectorAll(`script[id^="${EXTENSION_PREFIX}"], script[data-site-topping]`);
+  extensionScripts.forEach(el => {
+    try {
+      el.remove();
+    } catch {}
+  });
+
+  // appliedCode 객체 초기화
   if (appliedCode.css) {
-    appliedCode.css.remove();
+    try {
+      appliedCode.css.remove();
+    } catch {}
     appliedCode.css = undefined;
   }
 
   if (appliedCode.js) {
-    appliedCode.js.remove();
+    try {
+      appliedCode.js.remove();
+    } catch {}
     appliedCode.js = undefined;
   }
 }
 
 function applyCSSCode(css: string): void {
+  // 기존 CSS 스타일 요소가 남아있다면 제거 (중복 방지)
+  const existingStyle = document.getElementById(`${EXTENSION_PREFIX}injected-css`);
+  if (existingStyle) {
+    existingStyle.remove();
+  }
+
   const styleElement = document.createElement('style');
   styleElement.id = `${EXTENSION_PREFIX}injected-css`;
+  styleElement.setAttribute('data-site-topping', 'true');
   
   // CSS에 익스텐션 컨테이너를 제외하는 스코핑 및 애니메이션 보존 로직 추가
   const scopedCSS = addCSSScoping(css);
@@ -692,20 +812,26 @@ function applyBasicCSSProtection(css: string): string {
 
 async function applyJSCode(js: string): Promise<void> {
   try {
+    console.log('[Site Topping] Attempting to execute JavaScript:', js);
+    
     // Content script에서는 background script를 통해 실행 (가장 강력한 방법)
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       try {
+        console.log('[Site Topping] Trying background script execution...');
         const response = await chrome.runtime.sendMessage({
           type: 'EXECUTE_SCRIPT',
           code: js
         });
         
-        
+        console.log('[Site Topping] Background script response:', response);
         
         if (response && response.success) {
           // 성공적으로 실행됨
+          console.log('[Site Topping] JavaScript executed successfully via background script');
           createExecutionMarker();
           return;
+        } else {
+          console.warn('[Site Topping] Background script execution failed or returned unsuccessful response');
         }
       } catch (runtimeError) {
         console.error('[Site Topping] Background script execution failed:', runtimeError);
@@ -713,7 +839,7 @@ async function applyJSCode(js: string): Promise<void> {
     }
     
     // Background script 실행이 실패하거나 불가능한 경우 Content Script에서 직접 시도
-    
+    console.log('[Site Topping] Falling back to content script execution...');
     await contentScriptExecution(js);
     createExecutionMarker();
     
@@ -723,10 +849,15 @@ async function applyJSCode(js: string): Promise<void> {
 }
 
 async function contentScriptExecution(js: string): Promise<void> {
+  console.log('[Site Topping] Starting content script execution methods...');
+  
   // Method 1: Window postMessage를 통한 실행 (페이지 컨텍스트로 전달)
   try {
+    console.log('[Site Topping] Trying postMessage method...');
+    
     // 페이지에 리스너 설치 (한 번만)
     if (!(window as any).__siteTopping_pageListener) {
+      console.log('[Site Topping] Installing page message listener...');
       const script = document.createElement('script');
       script.textContent = `
         (function() {
@@ -817,15 +948,22 @@ async function contentScriptExecution(js: string): Promise<void> {
           })();
           
           window.__siteTopping_messageListener = true;
+          console.log('[Page Context] Site Topping message listener installed');
+          
           window.addEventListener('message', function(event) {
             if (event.source !== window || !event.data) return;
             var data = event.data;
+            
+            console.log('[Page Context] Received message:', data);
+            
             try {
               if (data.type === 'SITE_TOPPING_PREVIEW_START') {
+                console.log('[Page Context] Preview start');
                 window.__siteTopping_previewActive = true;
                 return;
               }
               if (data.type === 'SITE_TOPPING_PREVIEW_STOP') {
+                console.log('[Page Context] Preview stop');
                 window.__siteTopping_previewActive = false;
                 if (typeof window.__siteTopping_clearPreviewTimers === 'function') {
                   window.__siteTopping_clearPreviewTimers();
@@ -836,6 +974,7 @@ async function contentScriptExecution(js: string): Promise<void> {
                 return;
               }
               if (data.type === 'SITE_TOPPING_FORCE_CLEANUP') {
+                console.log('[Page Context] Force cleanup');
                 // Force cleanup and restore original methods
                 if (typeof window.__siteTopping_clearPreviewTimers === 'function') {
                   window.__siteTopping_clearPreviewTimers();
@@ -849,18 +988,22 @@ async function contentScriptExecution(js: string): Promise<void> {
                 return;
               }
               if (data.type === 'SITE_TOPPING_EXECUTE') {
+                console.log('[Page Context] Executing JavaScript:', data.code);
                 // Execute user code using Function constructor (CSP 정책 준수)
                 try {
                   const func = new Function(data.code);
-                  func();
+                  const result = func();
+                  console.log('[Page Context] JavaScript executed successfully via Function constructor, result:', result);
                 } catch (funcErr) {
                   console.error('[Page Context] Function constructor failed:', funcErr);
                   // Script element fallback
                   try {
+                    console.log('[Page Context] Trying script element fallback...');
                     const script = document.createElement('script');
                     script.textContent = data.code;
                     document.head.appendChild(script);
                     document.head.removeChild(script);
+                    console.log('[Page Context] JavaScript executed successfully via script element');
                   } catch (scriptErr) {
                     console.error('[Page Context] Script element failed:', scriptErr);
                   }
@@ -879,12 +1022,13 @@ async function contentScriptExecution(js: string): Promise<void> {
     }
     
     // 메시지 전송
+    console.log('[Site Topping] Sending postMessage to execute JavaScript...');
     window.postMessage({
       type: 'SITE_TOPPING_EXECUTE',
       code: js
     }, '*');
     
-    
+    console.log('[Site Topping] PostMessage method completed');
     return;
   } catch (postMessageError) {
     console.error('[Site Topping] postMessage method failed:', postMessageError);
@@ -951,10 +1095,17 @@ async function advancedFallbackExecution(js: string): Promise<void> {
 }
 
 function createExecutionMarker(): void {
+  // 기존 JS 마커가 있다면 제거
+  const existingMarker = document.getElementById(`${EXTENSION_PREFIX}injected-js-marker`);
+  if (existingMarker) {
+    existingMarker.remove();
+  }
+
   // 추적을 위해 더미 스크립트 엘리먼트 생성
   const markerElement = document.createElement('script');
   markerElement.id = `${EXTENSION_PREFIX}injected-js-marker`;
   markerElement.setAttribute('data-type', 'text/plain');
+  markerElement.setAttribute('data-site-topping', 'true');
   markerElement.dataset.applied = 'true';
   markerElement.dataset.timestamp = Date.now().toString();
   document.head.appendChild(markerElement);
@@ -1008,13 +1159,115 @@ export function disablePreview(): void {
     return;
   }
   
-  // Restore to the existing baseline only; do not recapture a new baseline
-  captureBaselineIfNeeded();
-  // Tell page context to stop and clear timers
-  try { window.postMessage({ type: 'SITE_TOPPING_PREVIEW_STOP' }, '*'); } catch {}
-  // Remove nodes added during preview (head/body outside our root)
-  stopPreviewObserverAndCleanup();
-  // Additional safety: remove head children not present in baseline
-  cleanupHeadExtras();
-  restoreBaseline();
+  console.log('[Site Topping] Disabling preview - performing complete restoration');
+  
+  // 완전한 프리뷰 상태 초기화
+  try {
+    // 1. JavaScript 실행 환경 완전 정리 (먼저 실행)
+    cleanupJavaScriptEffects();
+    
+    // 2. 페이지 컨텍스트에 강력한 정리 신호 전송
+    window.postMessage({ type: 'SITE_TOPPING_PREVIEW_STOP' }, '*');
+    window.postMessage({ type: 'SITE_TOPPING_FORCE_CLEANUP' }, '*');
+    
+    // 3. 짧은 대기로 페이지 컨텍스트 정리가 완료되도록 함
+    setTimeout(() => {
+      try {
+        // 4. 확장프로그램 코드 완전 제거
+        removeCodeFromPage();
+        cleanupExtensionCodeOnly();
+        
+        // 5. 베이스라인 복구 (항상 전체 복구 강제) - 단, 베이스라인이 유효할 때만
+        if (baselineSnapshot && baselineSnapshot.bodyHTML.trim().length > 0) {
+          restoreBaseline(true);
+        } else {
+          console.warn('[Site Topping] Skip full restore - baseline not ready');
+        }
+        
+        // 6. 추가 정리 작업
+        forceCleanupJavaScriptState();
+        
+        // 7. 강제 reflow로 변경사항 즉시 적용
+        document.body.offsetHeight;
+        document.documentElement.offsetHeight;
+        
+        // 8. 페이지 리페인트 강제 실행
+        if (window.getComputedStyle) {
+          window.getComputedStyle(document.body).display;
+        }
+        
+        console.log('[Site Topping] Preview disabled and baseline restored');
+        
+      } catch (innerError) {
+        console.error('[Site Topping] Error during delayed restoration:', innerError);
+      }
+    }, 10);
+    
+  } catch (error) {
+    console.error('[Site Topping] Error during preview disable:', error);
+  }
+}
+
+// JavaScript 실행으로 인한 전역 상태를 강제로 정리하는 함수
+function forceCleanupJavaScriptState(): void {
+  try {
+    console.log('[Site Topping] Performing force cleanup of JavaScript state');
+    
+    // 페이지에 추가 정리 스크립트 주입
+    const cleanupScript = document.createElement('script');
+    cleanupScript.textContent = `
+      (function() {
+        try {
+          // 사용자 코드에서 생성했을 가능성이 있는 전역 변수들 정리
+          if (typeof window.__userCodeCleanup === 'function') {
+            window.__userCodeCleanup();
+          }
+          
+          // DOM 이벤트 리스너들 중 사용자 코드가 추가한 것들 정리
+          const allElements = document.querySelectorAll('*');
+          allElements.forEach(el => {
+            if (el.id !== 'site-topping-root' && !el.closest('#site-topping-root')) {
+              // Clone node를 사용해서 이벤트 리스너 제거 (극단적 방법)
+              if (el.__siteTopping_hasUserEvents) {
+                const parent = el.parentNode;
+                const clone = el.cloneNode(true);
+                if (parent) {
+                  parent.replaceChild(clone, el);
+                }
+              }
+            }
+          });
+          
+          // 추가된 커스텀 CSS 클래스 제거
+          document.querySelectorAll('[class*="user-"], [class*="temp-"], [class*="dynamic-"]').forEach(el => {
+            if (el.id !== 'site-topping-root' && !el.closest('#site-topping-root')) {
+              // 사용자가 추가했을 가능성이 있는 클래스들 제거
+              const classes = Array.from(el.classList);
+              classes.forEach(className => {
+                if (className.includes('user-') || className.includes('temp-') || className.includes('dynamic-')) {
+                  el.classList.remove(className);
+                }
+              });
+            }
+          });
+          
+          console.log('[Page Context] Force cleanup completed');
+        } catch (e) {
+          console.warn('[Page Context] Force cleanup error:', e);
+        }
+      })();
+    `;
+    
+    document.head.appendChild(cleanupScript);
+    
+    // 정리 스크립트 제거
+    setTimeout(() => {
+      try {
+        cleanupScript.remove();
+      } catch {}
+    }, 100);
+    
+  } catch (error) {
+    console.warn('[Site Topping] Force cleanup failed:', error);
+  }
 }

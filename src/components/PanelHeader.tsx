@@ -103,10 +103,10 @@ export default function PanelHeader({}: PanelHeaderProps) {
     
     try {
       if (state.isPreviewMode) {
+        // 프리뷰 끄기: 코드 제거만 실행
         await codePreviewService.removeCode();
-      } else {
-        await codePreviewService.applyCode(state.editorCode.css, state.editorCode.javascript);
       }
+      // 프리뷰 켜기는 상태만 변경하고, 실제 코드 적용은 디바운스 Effect에서 처리
       actions.togglePreviewMode();
     } finally {
       setIsToggling(false);
@@ -134,10 +134,14 @@ export default function PanelHeader({}: PanelHeaderProps) {
 
   // 프리뷰 모드일 때 디바운스된 코드 변경시 적용
   useEffect(() => {
-    if (state.isPreviewMode) {
-      codePreviewService.applyCode(debouncedCSS, debouncedJS);
+    // 토글 중이거나 프리뷰 모드가 아니면 적용하지 않음
+    if (!state.isPreviewMode || isToggling) {
+      return;
     }
-  }, [debouncedCSS, debouncedJS, state.isPreviewMode]);
+    
+    console.log('[PanelHeader] Applying debounced code changes');
+    codePreviewService.applyCode(debouncedCSS, debouncedJS);
+  }, [debouncedCSS, debouncedJS, state.isPreviewMode, isToggling]);
 
   // 배포 성공 아이콘을 2초 후 자동으로 숨김
   useEffect(() => {

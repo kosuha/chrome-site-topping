@@ -1,7 +1,7 @@
 // Content script for Site Topping Chrome Extension
 // This script runs in the context of web pages to handle communication with the side panel
 
-import { disablePreview, applyCodeToPage } from './services/codePreview';
+import { disablePreview, applyCodeToPage, removeCodeFromPage } from './services/codePreview';
 import { enableElementInspector, disableElementInspector } from './services/elementInspector';
 
 console.log('[Content Script] Site Topping content script loaded');
@@ -42,6 +42,30 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           sendResponse({ success: true });
         } catch (error) {
           console.error('[Content Script] JS injection error:', error);
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          sendResponse({ success: false, error: errorMessage });
+        }
+        break;
+        
+      case 'APPLY_CODE':
+        // Apply both CSS and JavaScript together (better for JavaScript baseline restoration)
+        try {
+          await applyCodeToPage(message.css || '', message.js || '');
+          sendResponse({ success: true });
+        } catch (error) {
+          console.error('[Content Script] Code application error:', error);
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          sendResponse({ success: false, error: errorMessage });
+        }
+        break;
+        
+      case 'REMOVE_CODE':
+        // 기존 적용된 코드만 제거 (베이스라인 복구는 하지 않음)
+        try {
+          removeCodeFromPage();
+          sendResponse({ success: true });
+        } catch (error) {
+          console.error('[Content Script] Remove code error:', error);
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
           sendResponse({ success: false, error: errorMessage });
         }

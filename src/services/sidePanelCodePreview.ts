@@ -13,28 +13,30 @@ export class SidePanelCodePreviewService {
 
   async applyCode(css: string, js: string): Promise<boolean> {
     try {
-      // CSS 적용
-      if (css.trim()) {
-        const cssResult = await this.sendMessage({
-          type: 'INJECT_CSS',
-          css: this.addCSSScoping(css)
-        });
-        
-        if (!cssResult.success) {
-          console.error('[SidePanel] CSS injection failed:', cssResult.error);
+      const prevHadJS = this.currentJS.trim().length > 0;
+      const newHasJS = js.trim().length > 0;
+
+      // JS에서 CSS-only로 전환되는 경우: 완전한 베이스라인 복구 후 적용
+      if (prevHadJS && !newHasJS) {
+        const restore = await this.sendMessage({ type: 'DISABLE_PREVIEW' });
+        if (!restore.success) {
+          console.error('[SidePanel] Baseline restoration before CSS-only apply failed:', restore.error);
+          return false;
         }
+        // content 쪽 복원이 setTimeout으로 지연 수행되므로 잠시 대기
+        await new Promise((r) => setTimeout(r, 200));
       }
 
-      // JavaScript 적용  
-      if (js.trim()) {
-        const jsResult = await this.sendMessage({
-          type: 'INJECT_JS',
-          js: js
-        });
-        
-        if (!jsResult.success) {
-          console.error('[SidePanel] JS injection failed:', jsResult.error);
-        }
+      // CSS와 JavaScript를 함께 적용 (JavaScript가 있을 때 베이스라인 복원을 위해)
+      const result = await this.sendMessage({
+        type: 'APPLY_CODE',
+        css: this.addCSSScoping(css),
+        js: js
+      });
+      
+      if (!result.success) {
+        console.error('[SidePanel] Code application failed:', result.error);
+        return false;
       }
 
       this.currentCSS = css;
@@ -49,16 +51,21 @@ export class SidePanelCodePreviewService {
 
   async removeCode(): Promise<boolean> {
     try {
-      // 완전한 원상복구를 위해 disablePreview() 호출
-      const result = await this.sendMessage({
-        type: 'DISABLE_PREVIEW'
-      });
+      console.log('[SidePanel] Removing code and restoring page state');
+      
+      // 프리뷰 끄기는 항상 완전한 베이스라인 복원 수행
+      const result = await this.sendMessage({ type: 'DISABLE_PREVIEW' });
+      
+      if (!result.success) {
+        console.error('[SidePanel] Baseline restoration failed:', result.error);
+        return false;
+      }
       
       this.currentCSS = '';
       this.currentJS = '';
       this.isApplied = false;
       
-      return result.success;
+      return true;
     } catch (error) {
       console.error('[SidePanel] Code removal failed:', error);
       return false;

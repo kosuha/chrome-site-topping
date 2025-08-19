@@ -9,9 +9,10 @@
     "storage",
     "declarativeNetRequest",
     "sidePanel",
-    "tabs"
+    "tabs",
+    "activeTab"
   ],
-  "optional_host_permissions": [
+  "host_permissions": [
     "https://*/*",
     "http://*/*"
   ],
