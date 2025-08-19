@@ -100,22 +100,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     )
 
     // Listen for auth success from background script
-    const handleMessage = (message: any) => {
+    const handleRuntimeMessage = (message: any) => {
       if (message.type === 'AUTH_SUCCESS') {
-        // Session will be updated by onAuthStateChange
-        dispatch({ type: 'SET_ERROR', payload: null })
+        // background에서 setSession을 수행했더라도 현재 컨텍스트의 supabase 인스턴스는 모를 수 있으므로 동기화
+        ;(async () => {
+          try {
+            if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+              const result = await chrome.storage.local.get(['supabase.auth.token'])
+              const raw = result['supabase.auth.token']
+              if (raw) {
+                const stored = JSON.parse(raw)
+                // 다양한 형태를 대비해 안전하게 토큰 추출
+                const access_token = stored?.access_token || stored?.currentSession?.access_token
+                const refresh_token = stored?.refresh_token || stored?.currentSession?.refresh_token || ''
+                if (access_token) {
+                  await supabase.auth.setSession({ access_token, refresh_token })
+                } else {
+                  // access_token이 없으면 강제로 세션 조회 시도
+                  await supabase.auth.getSession()
+                }
+              } else {
+                // 저장소에 없으면 강제로 세션 조회 시도
+                await supabase.auth.getSession()
+              }
+            }
+            dispatch({ type: 'SET_ERROR', payload: null })
+          } catch (e) {
+            console.error('AUTH_SUCCESS 후 세션 동기화 실패:', e)
+          }
+        })()
       }
     }
 
     // Only add listener in extension environment
     if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.onMessage.addListener(handleMessage)
+      chrome.runtime.onMessage.addListener(handleRuntimeMessage)
     }
 
     return () => {
       subscription.unsubscribe()
       if (typeof chrome !== 'undefined' && chrome.runtime) {
-        chrome.runtime.onMessage.removeListener(handleMessage)
+        chrome.runtime.onMessage.removeListener(handleRuntimeMessage)
       }
     }
   }, [])

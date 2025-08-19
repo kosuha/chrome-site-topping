@@ -558,6 +558,11 @@ export default function UserTab() {
                               )}
                             </button>
                           </div>
+                          <div>
+                            <p className={styles.scriptHint}>
+                              이 스크립트를 웹사이트의 <code>&lt;/body&gt;</code> 태그 바로 앞에 추가하세요.
+                            </p>
+                          </div>
                         </div>
                         
                         <div className={styles.actionRow}>

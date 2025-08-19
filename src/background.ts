@@ -255,18 +255,62 @@ async function executeScriptInTab(tabId: number, code: string): Promise<any> {
 
 async function initOAuth(provider: string) {
     try {
+        const redirectUri = chrome.identity.getRedirectURL();
         const { data, error } = await supabase.auth.signInWithOAuth({
             provider: provider as any,
             options: {
-                redirectTo: chrome.identity.getRedirectURL()
+                redirectTo: redirectUri,
+                // 필요 시 추가 파라미터 전달 가능
+                // queryParams: { prompt: 'select_account' }
             }
         })
         
         if (error) throw error
-        
-        // Open OAuth URL in new tab
-        await chrome.tabs.create({ url: data.url })
-        
+        if (!data?.url) throw new Error('OAuth URL 생성 실패')
+
+        // Chrome이 리다이렉트를 가로채고 최종 redirect URL을 반환
+        const redirectUrl = await chrome.identity.launchWebAuthFlow({
+            url: data.url,
+            interactive: true
+        })
+
+        if (!redirectUrl) {
+            throw new Error('리다이렉트 URL을 받지 못했습니다')
+        }
+
+        // redirectUrl의 해시에서 토큰 추출
+        const finalUrl = new URL(redirectUrl)
+        const hash = finalUrl.hash.startsWith('#') ? finalUrl.hash.substring(1) : finalUrl.hash
+        const hashParams = new URLSearchParams(hash)
+        const accessToken = hashParams.get('access_token')
+        const refreshToken = hashParams.get('refresh_token') || ''
+
+        if (!accessToken) {
+            throw new Error('액세스 토큰을 찾을 수 없습니다')
+        }
+
+        // Supabase 세션 설정
+        const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+        })
+        if (sessionError) throw sessionError
+
+        // 세션 보관 (백업)
+        await chrome.storage.local.set({
+            'supabase.auth.token': JSON.stringify(sessionData.session)
+        })
+
+        // 컨텐츠 스크립트에 알림
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0]) {
+                chrome.tabs.sendMessage(tabs[0].id!, {
+                    type: 'AUTH_SUCCESS',
+                    user: sessionData.user
+                })
+            }
+        })
+
         return { success: true }
     } catch (error) {
         console.error('OAuth initialization error:', error)

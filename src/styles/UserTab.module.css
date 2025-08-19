@@ -1371,3 +1371,9 @@
 :global(.tabContent:has(.container)) {
   overflow: visible !important;
 }
+
+.scriptHint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+}
