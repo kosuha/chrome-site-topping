@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import styles from '../styles/SidePanel.module.css';
 import { TABS } from '../utils/constants';
 import { useAppContext } from '../contexts/AppContext';
-import { BotMessageSquare, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigRight, CodeXml, Loader2, Check, X, Target } from 'lucide-react';
+import { BotMessageSquare, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigRight, CodeXml, Loader2, Check, X, SquareDashedMousePointer } from 'lucide-react';
 import { useDebounce } from '../hooks/useDebounce';
 import { SiteIntegrationService } from '../services/siteIntegration';
 import { useSidePanelMessage } from '../hooks/useSidePanelMessage';
@@ -234,7 +234,7 @@ export default function PanelHeader({}: PanelHeaderProps) {
           onClick={handleInspectorToggle}
           title={isInspectorActive ? "요소 선택 종료" : "요소 선택"}
         >
-          <Target size={24} />
+          <SquareDashedMousePointer size={24} />
         </button>
 
         {/* 전역 히스토리 제어 버튼 */}
