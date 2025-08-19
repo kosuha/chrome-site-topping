@@ -34,29 +34,42 @@ class CodeAnalyzer {
       normalized = `--- a\n+++ b\n${normalized}`;
     }
 
-    // 헝크 내 invalid 라인 보정: 허용 접두어(' ', '+', '-', '\\')가 없으면 컨텍스트로 간주
-    const lines = normalized.split('\n');
-    let inHunk = false;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (line.startsWith('@@ ')) {
-        inHunk = true; continue;
-      }
-      if (line.startsWith('---') || line.startsWith('+++') || line.startsWith('diff ')) {
-        inHunk = false; continue;
-      }
-      if (inHunk) {
-        const first = line.charAt(0);
-        const isAllowed = first === ' ' || first === '+' || first === '-' || first === '\\' || line === '';
-        if (!isAllowed) {
-          lines[i] = ' ' + line; // 컨텍스트로 보정
-        }
+    // 메타 라인/잘못된 헤더 정리 (diff --git, index, new file mode 등) 및 잘못된 "++ filename"/"-- filename" 제거
+    const rawLines = normalized.split('\n');
+    const cleaned: string[] = [];
+    for (const line of rawLines) {
+      // 합법적 헤더(+++/---)와 헝크, 변경/컨텍스트 라인은 유지
+      const isValidHeader = line.startsWith('+++ ') || line.startsWith('--- ');
+      const isHunkHeader = line.startsWith('@@');
+      const isChangeLine = line.startsWith('+') || line.startsWith('-') || line.startsWith(' ');
+
+      // 제거해야 할 메타/잘못된 헤더
+      const isBadMeta =
+        /^diff\s/.test(line) ||
+        /^index\s/.test(line) ||
+        /^(new file mode|deleted file mode|rename\s)/.test(line) ||
+        /^\+\+\s+\S+/.test(line) || // 잘못된 "++ filename" 형태
+        /^--\s+\S+/.test(line);      // 잘못된 "-- filename" 형태
+
+      if (isBadMeta) continue;
+      if (isValidHeader || isHunkHeader || isChangeLine || line === '') {
+        cleaned.push(line);
+      } else {
+        // 헝크 내부가 아닌 이상한 라인은 컨텍스트로 안전 보정
+        cleaned.push(' ' + line);
       }
     }
 
-    normalized = lines.join('\n');
+    normalized = cleaned.join('\n');
     if (!normalized.endsWith('\n')) normalized += '\n';
     return normalized;
+  }
+
+  /**
+   * 패치에 헝크가 존재하는지 확인
+   */
+  private hasHunk(patch: string): boolean {
+    return /@@\s*-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s*@@/m.test(patch);
   }
 
   /**
@@ -69,6 +82,12 @@ class CodeAnalyzer {
       let currentLineIndex = 0;
       for (let i = 0; i < diffLines.length; i++) {
         const line = diffLines[i];
+
+        // 헤더/메타 라인 및 잘못된 헤더는 무시
+        if (/^(?:\+\+\+ |--- |\+\+ |-- |diff |index |new file mode|deleted file mode|rename )/.test(line)) {
+          continue;
+        }
+
         if (line.startsWith('@@')) {
           const match = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
           if (match) currentLineIndex = parseInt(match[3]) - 1;
@@ -101,17 +120,29 @@ class CodeAnalyzer {
     try {
       const eol = currentCode.includes('\r\n') ? '\r\n' : '\n';
       const normalizedPatch = this.normalizeUnifiedDiff(diffString);
+
+      // 헝크가 없는 패치는 적용하지 않음 (오염 방지)
+      if (!this.hasHunk(normalizedPatch)) {
+        console.warn('Patch has no hunks. Skipping apply to prevent pollution.');
+        return currentCode;
+      }
+
       const base = currentCode.replace(/\r\n/g, '\n');
       const applied = diffApplyPatch(base, normalizedPatch);
       if (applied === false) {
         console.warn('diff.applyPatch 실패, 폴백 로직 사용');
-        return this.naiveApply(currentCode, diffString);
+        return this.naiveApply(currentCode, normalizedPatch);
       }
       return (applied as string).replace(/\n/g, eol);
     } catch (error) {
       // 과도한 에러 노이즈 방지
       console.warn('Git diff 적용 실패, 폴백 사용');
-      return this.naiveApply(currentCode, diffString);
+      // 폴백도 헝크가 있을 때만 시도
+      const normalizedPatch = this.normalizeUnifiedDiff(diffString);
+      if (this.hasHunk(normalizedPatch)) {
+        return this.naiveApply(currentCode, normalizedPatch);
+      }
+      return currentCode;
     }
   }
 

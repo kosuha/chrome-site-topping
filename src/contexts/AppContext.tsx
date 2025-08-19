@@ -498,64 +498,65 @@ export function AppProvider({ children }: AppProviderProps) {
           } catch (error) {
             console.error('메시지 로드 실패:', error);
           }
-
-          // 코드 히스토리 전체 로드
-          try {
-            console.log('🌐 [loadUserData] 코드 히스토리 로드 시작');
-            const currentSiteCode = await aiService.getCurrentSiteCode();
-            console.log('🌐 [loadUserData] 현재 사이트 코드:', currentSiteCode);
-            
-            if (currentSiteCode) {
-              // 모든 버전 가져오기
-              console.log('📝 [loadUserData] 서버에서 코드 버전 조회 중...');
-              const allVersions = await getAllVersions(currentSiteCode);
-              console.log('📝 [loadUserData] 서버 코드 버전:', allVersions.length, '개');
-              console.log('📝 [loadUserData] 버전 상세:', allVersions.map(v => ({ id: v.id, type: v.type, created_at: v.created_at })));
-              
-              if (allVersions.length > 0) {
-                // 버전들을 히스토리로 재구성
-                console.log('🔄 [loadUserData] 코드 히스토리 재구성 중...');
-                const reconstructedSteps = reconstructFromVersions(allVersions);
-                console.log('🔄 [loadUserData] 재구성된 히스토리 스텝:', reconstructedSteps.length, '개');
-                console.log('🔄 [loadUserData] 최신 코드 미리보기 - JS:', reconstructedSteps[reconstructedSteps.length - 1]?.javascript?.substring(0, 100) || 'empty');
-                console.log('🔄 [loadUserData] 최신 코드 미리보기 - CSS:', reconstructedSteps[reconstructedSteps.length - 1]?.css?.substring(0, 100) || 'empty');
-                
-                // 히스토리 스택 초기화 후 재구성
-                console.log('🗑️ [loadUserData] 기존 히스토리 스택 초기화');
-                dispatch({ type: 'CLEAR_CODE_HISTORY' });
-                
-                console.log('📚 [loadUserData] 히스토리 스택에 버전들 추가 중...');
-                reconstructedSteps.forEach((step, index) => {
-                  dispatch({ type: 'PUSH_CODE_HISTORY', payload: {
-                    javascript: step.javascript,
-                    css: step.css,
-                    description: `서버 복원 ${index + 1}`,
-                    isSuccessful: true
-                  }});
-                });
-                
-                // 최신 코드를 에디터에 설정
-                const latestStep = reconstructedSteps[reconstructedSteps.length - 1];
-                if (latestStep) {
-                  console.log('✏️ [loadUserData] 최신 코드를 에디터에 적용');
-                  dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'javascript', code: latestStep.javascript || '' } });
-                  dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'css', code: latestStep.css || '' } });
-                  console.log('✅ [loadUserData] 코드 복원 완료 - JS 길이:', latestStep.javascript?.length || 0, ', CSS 길이:', latestStep.css?.length || 0);
-                } else {
-                  console.log('⚠️ [loadUserData] 최신 스텝이 없음');
-                }
-              } else {
-                console.log('📝 [loadUserData] 코드 버전 없음 - 히스토리 복원 건너뜀');
-              }
-            } else {
-              console.log('🌐 [loadUserData] 사이트 코드 없음 - 히스토리 복원 건너뜀');
-            }
-          } catch (error) {
-            console.error('💥 [loadUserData] 코드 버전 로드 실패:', error);
-            console.error('💥 [loadUserData] 코드 로드 스택:', error instanceof Error ? error.stack : 'No stack trace');
-          }
         }
       }
+
+      // 코드 히스토리 전체 로드 (스레드 존재 여부와 무관하게 실행)
+      try {
+        console.log('🌐 [loadUserData] 코드 히스토리 로드 시작');
+        const currentSiteCode = await aiService.getCurrentSiteCode();
+        console.log('🌐 [loadUserData] 현재 사이트 코드:', currentSiteCode);
+        
+        if (currentSiteCode) {
+          // 모든 버전 가져오기
+          console.log('📝 [loadUserData] 서버에서 코드 버전 조회 중...');
+          const allVersions = await getAllVersions(currentSiteCode);
+          console.log('📝 [loadUserData] 서버 코드 버전:', allVersions.length, '개');
+          console.log('📝 [loadUserData] 버전 상세:', allVersions.map(v => ({ id: v.id, type: v.type, created_at: v.created_at })));
+          
+          if (allVersions.length > 0) {
+            // 버전들을 히스토리로 재구성
+            console.log('🔄 [loadUserData] 코드 히스토리 재구성 중...');
+            const reconstructedSteps = reconstructFromVersions(allVersions);
+            console.log('🔄 [loadUserData] 재구성된 히스토리 스텝:', reconstructedSteps.length, '개');
+            console.log('🔄 [loadUserData] 최신 코드 미리보기 - JS:', reconstructedSteps[reconstructedSteps.length - 1]?.javascript?.substring(0, 100) || 'empty');
+            console.log('🔄 [loadUserData] 최신 코드 미리보기 - CSS:', reconstructedSteps[reconstructedSteps.length - 1]?.css?.substring(0, 100) || 'empty');
+            
+            // 히스토리 스택 초기화 후 재구성
+            console.log('🗑️ [loadUserData] 기존 히스토리 스택 초기화');
+            dispatch({ type: 'CLEAR_CODE_HISTORY' });
+            
+            console.log('📚 [loadUserData] 히스토리 스택에 버전들 추가 중...');
+            reconstructedSteps.forEach((step, index) => {
+              dispatch({ type: 'PUSH_CODE_HISTORY', payload: {
+                javascript: step.javascript,
+                css: step.css,
+                description: `서버 복원 ${index + 1}`,
+                isSuccessful: true
+              }});
+            });
+            
+            // 최신 코드를 에디터에 설정
+            const latestStep = reconstructedSteps[reconstructedSteps.length - 1];
+            if (latestStep) {
+              console.log('✏️ [loadUserData] 최신 코드를 에디터에 적용');
+              dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'javascript', code: latestStep.javascript || '' } });
+              dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'css', code: latestStep.css || '' } });
+              console.log('✅ [loadUserData] 코드 복원 완료 - JS 길이:', latestStep.javascript?.length || 0, ', CSS 길이:', latestStep.css?.length || 0);
+            } else {
+              console.log('⚠️ [loadUserData] 최신 스텝이 없음');
+            }
+          } else {
+            console.log('📝 [loadUserData] 코드 버전 없음 - 히스토리 복원 건너뜀');
+          }
+        } else {
+          console.log('🌐 [loadUserData] 사이트 코드 없음 - 히스토리 복원 건너뜀');
+        }
+      } catch (error) {
+        console.error('💥 [loadUserData] 코드 버전 로드 실패:', error);
+        console.error('💥 [loadUserData] 코드 로드 스택:', error instanceof Error ? error.stack : 'No stack trace');
+      }
+
     } catch (error) {
       console.error('사용자 데이터 로드 실패:', error);
       dispatch({ type: 'SET_ERROR', payload: '사용자 데이터를 로드할 수 없습니다.' });

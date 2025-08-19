@@ -17,6 +17,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       case 'GET_PAGE_INFO':
         // Get current page information
         sendResponse({
+          success: true,
           url: window.location.href,
           title: document.title,
           domain: window.location.hostname
