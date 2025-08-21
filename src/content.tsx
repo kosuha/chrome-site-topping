@@ -108,6 +108,45 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         }
         break;
         
+      case 'CHECK_SCRIPT_INSTALLED':
+        // 사이트 연동 스크립트 설치 여부 확인
+        try {
+          const { siteCode, scriptUrl } = message;
+          console.log('[Content Script] 스크립트 설치 확인:', { siteCode, scriptUrl });
+          
+          // 1. DOM에서 스크립트 태그 존재 여부 확인
+          const existingScript = document.querySelector(`script[src="${scriptUrl}"]`);
+          if (existingScript) {
+            console.log('[Content Script] 스크립트 태그 발견:', scriptUrl);
+            sendResponse({ success: true, installed: true, method: 'script_tag' });
+            return;
+          }
+          
+          // 2. window 객체에 사이트 식별자 확인
+          const siteIdentifier = `siteTopping_${siteCode}`;
+          if ((window as any)[siteIdentifier]) {
+            console.log('[Content Script] 사이트 식별자 발견:', siteIdentifier);
+            sendResponse({ success: true, installed: true, method: 'site_identifier' });
+            return;
+          }
+          
+          // 3. 일반적인 site-topping 관련 요소들 확인
+          const siteElements = document.querySelectorAll('[data-site-topping]');
+          if (siteElements.length > 0) {
+            console.log('[Content Script] site-topping 요소들 발견:', siteElements.length, '개');
+            sendResponse({ success: true, installed: true, method: 'data_attributes' });
+            return;
+          }
+          
+          console.log('[Content Script] 연동 스크립트 설치 확인 안됨');
+          sendResponse({ success: true, installed: false });
+        } catch (error) {
+          console.error('[Content Script] 스크립트 설치 확인 오류:', error);
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          sendResponse({ success: false, error: errorMessage });
+        }
+        break;
+        
       default:
         sendResponse({ success: false, error: 'Unknown message type' });
     }

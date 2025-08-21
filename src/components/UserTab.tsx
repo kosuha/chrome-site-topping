@@ -26,16 +26,54 @@ export default function UserTab() {
   const siteService = SiteIntegrationService.getInstance()
 
   useEffect(() => {
-    // 현재 사이트의 도메인 가져기
-    const hostname = window.location.hostname
-    setCurrentDomain(hostname)
-    
-    // newSiteDomain의 초기값을 현재 도메인으로 설정
-    setNewSiteDomain(hostname)
+    // Chrome Extension에서 현재 활성 탭의 실제 도메인 가져오기
+    const getCurrentDomain = async () => {
+      try {
+        console.log('현재 탭 정보 가져오는 중...');
+        
+        // Chrome tabs API를 통해 현재 활성 탭의 정보 가져오기
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        if (activeTab?.url) {
+          const url = new URL(activeTab.url);
+          const hostname = url.hostname;
+          
+          console.log('활성 탭 URL:', activeTab.url);
+          console.log('감지된 hostname:', hostname);
+          
+          // 유효한 도메인인지 확인
+          if (hostname && 
+              hostname !== 'localhost' && 
+              !hostname.startsWith('chrome-extension://') && 
+              !hostname.startsWith('moz-extension://') &&
+              !hostname.includes('extension') &&
+              hostname.length > 0) {
+            
+            console.log('유효한 도메인으로 설정:', hostname);
+            setCurrentDomain(hostname);
+            setNewSiteDomain(hostname);
+          } else {
+            console.log('유효하지 않은 도메인:', hostname, '- 기본값 사용');
+            setCurrentDomain('example.com');
+            setNewSiteDomain('example.com');
+          }
+        } else {
+          console.log('활성 탭 URL 없음 - 기본값 사용');
+          setCurrentDomain('example.com');
+          setNewSiteDomain('example.com');
+        }
+      } catch (error) {
+        console.error('현재 탭 정보 가져오기 실패:', error);
+        setCurrentDomain('example.com');
+        setNewSiteDomain('example.com');
+      }
+    };
+
+    getCurrentDomain();
     
     // 사용자가 로그인한 경우 연동된 사이트 목록 로드
     if (user) {
-      loadConnectedSites()
+      loadConnectedSites();
     }
   }, [user])
 

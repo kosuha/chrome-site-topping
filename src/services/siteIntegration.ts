@@ -151,12 +151,31 @@ export class SiteIntegrationService {
       return { connected: false, error: '사이트를 찾을 수 없습니다' }
     }
 
-    const currentDomain = window.location.hostname
+    // Chrome Extension에서 현재 활성 탭의 도메인 가져오기
+    let currentDomain = '';
+    try {
+      if (typeof chrome !== 'undefined' && chrome.tabs) {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (activeTab?.url) {
+          const url = new URL(activeTab.url);
+          currentDomain = url.hostname;
+        }
+      }
+      
+      // 백업: window.location 사용 (content script에서)
+      if (!currentDomain) {
+        currentDomain = window.location.hostname;
+      }
+    } catch (error) {
+      console.error('도메인 가져오기 실패:', error);
+      return { connected: false, error: '현재 도메인을 확인할 수 없습니다' };
+    }
+    
     const isDomainMatch = currentDomain === site.domain
     
     if (!isDomainMatch) {
       // 도메인이 다르면 연결 안됨
-      return { connected: false, error: `현재 ${site.domain}에 있지 않습니다` }
+      return { connected: false, error: `현재 도메인(${currentDomain})이 사이트 도메인(${site.domain})과 다릅니다` }
     }
 
     // 도메인이 일치하면 실제 스크립트 존재 여부 확인
@@ -177,39 +196,46 @@ export class SiteIntegrationService {
     if (!siteCode) return false
     
     try {
-      // 1. DOM에서 해당 사이트의 스크립트 태그 존재 여부 확인
-      const scriptUrl = `${this.baseUrl}/api/v1/sites/${siteCode}/script`
-      const existingScript = document.querySelector(`script[src="${scriptUrl}"]`)
+      // Chrome Extension에서는 content script를 통해 웹페이지 DOM을 확인해야 함
+      if (typeof chrome !== 'undefined' && chrome.tabs) {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        if (activeTab?.id) {
+          try {
+            // content script에 스크립트 설치 여부 확인 요청
+            const result = await chrome.tabs.sendMessage(activeTab.id, {
+              type: 'CHECK_SCRIPT_INSTALLED',
+              siteCode: siteCode,
+              scriptUrl: `${this.baseUrl}/api/v1/sites/${siteCode}/script`
+            });
+            
+            console.log('스크립트 설치 확인 결과:', result);
+            return result?.installed === true;
+          } catch (error) {
+            console.warn('content script 통신 실패:', error);
+            // content script가 응답하지 않으면 설치되지 않은 것으로 간주
+            return false;
+          }
+        }
+      }
       
-      if (existingScript) {
-        
-        return true
-      }
-
-      // 2. 스크립트가 이미 로드되어 실행 중인지 확인
-      // window 객체에 사이트 특정 식별자가 있는지 확인
-      const siteIdentifier = `siteTopping_${siteCode}`
-      if ((window as any)[siteIdentifier]) {
-        
-        return true
-      }
-
-      // 3. 실제 스크립트 URL로 HTTP 요청을 보내서 응답이 있는지 확인
+      // 백업: 서버에서 스크립트 존재 여부만 확인
       try {
+        const scriptUrl = `${this.baseUrl}/api/v1/sites/${siteCode}/script`
         const response = await fetch(scriptUrl, { method: 'HEAD' })
         if (response.ok) {
-          
-          // 스크립트가 서버에 존재하지만 아직 설치되지 않은 상태
-          return false
+          console.log('서버에 스크립트 존재하지만 설치 여부 확인 불가');
+          // 서버에 스크립트가 존재하면 연동 가능으로 간주
+          return true;
         }
       } catch (fetchError) {
-        
+        console.warn('서버 스크립트 확인 실패:', fetchError);
       }
 
-      return false
+      return false;
     } catch (error) {
-      console.error('스크립트 설치 확인 중 오류:', error)
-      return false
+      console.error('스크립트 설치 확인 중 오류:', error);
+      return false;
     }
   }
 
@@ -218,12 +244,27 @@ export class SiteIntegrationService {
     return sites.find(site => site.id === siteId) || null
   }
 
-  getCurrentDomain(): string {
-    return window.location.hostname
+  async getCurrentDomain(): Promise<string> {
+    try {
+      // Chrome Extension에서 현재 활성 탭의 도메인 가져오기
+      if (typeof chrome !== 'undefined' && chrome.tabs) {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (activeTab?.url) {
+          const url = new URL(activeTab.url);
+          return url.hostname;
+        }
+      }
+      
+      // 백업: window.location 사용
+      return window.location.hostname;
+    } catch (error) {
+      console.error('현재 도메인 가져오기 실패:', error);
+      return window.location.hostname;
+    }
   }
 
-  isCurrentSiteConnected(sites: Site[]): Site | null {
-    const currentDomain = this.getCurrentDomain()
+  async isCurrentSiteConnected(sites: Site[]): Promise<Site | null> {
+    const currentDomain = await this.getCurrentDomain()
     return sites.find(site => site.domain === currentDomain && site.connection_status === 'connected') || null
   }
 

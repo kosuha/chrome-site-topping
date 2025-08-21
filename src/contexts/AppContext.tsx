@@ -43,6 +43,7 @@ export interface AppState {
   isLoading: boolean;
   error: string | null;
   isPreviewMode: boolean;
+  isRestoring: boolean; // 코드 복원 중 플래그
   editorCode: {
     javascript: string;
     css: string;
@@ -76,6 +77,7 @@ type AppAction =
   | { type: 'SET_ERROR'; payload: string | null }
   | { type: 'SET_PREVIEW_MODE'; payload: boolean }
   | { type: 'TOGGLE_PREVIEW_MODE' }
+  | { type: 'SET_RESTORING'; payload: boolean }
   | { type: 'SET_EDITOR_CODE'; payload: { language: 'javascript' | 'css'; code: string } }
   | { type: 'PUSH_CODE_HISTORY'; payload: { 
       javascript: string; 
@@ -111,6 +113,7 @@ const getInitialState = (): AppState => ({
   isLoading: false,
   error: null,
   isPreviewMode: false,
+  isRestoring: false,
   editorCode: {
     javascript: '',
     css: ''
@@ -140,6 +143,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, error: action.payload };
     case 'TOGGLE_PREVIEW_MODE':
       return { ...state, isPreviewMode: !state.isPreviewMode };
+    case 'SET_RESTORING':
+      return { ...state, isRestoring: action.payload };
     case 'SET_EDITOR_CODE':
       return {
         ...state,
@@ -501,7 +506,7 @@ export function AppProvider({ children }: AppProviderProps) {
         }
       }
 
-      // 코드 히스토리 전체 로드 (스레드 존재 여부와 무관하게 실행)
+      // 코드 히스토리 복원 (중복 방지 로직 추가)
       try {
         console.log('🌐 [loadUserData] 코드 히스토리 로드 시작');
         const currentSiteCode = await aiService.getCurrentSiteCode();
@@ -519,32 +524,56 @@ export function AppProvider({ children }: AppProviderProps) {
             console.log('🔄 [loadUserData] 코드 히스토리 재구성 중...');
             const reconstructedSteps = reconstructFromVersions(allVersions);
             console.log('🔄 [loadUserData] 재구성된 히스토리 스텝:', reconstructedSteps.length, '개');
-            console.log('🔄 [loadUserData] 최신 코드 미리보기 - JS:', reconstructedSteps[reconstructedSteps.length - 1]?.javascript?.substring(0, 100) || 'empty');
-            console.log('🔄 [loadUserData] 최신 코드 미리보기 - CSS:', reconstructedSteps[reconstructedSteps.length - 1]?.css?.substring(0, 100) || 'empty');
             
-            // 히스토리 스택 초기화 후 재구성
-            console.log('🗑️ [loadUserData] 기존 히스토리 스택 초기화');
-            dispatch({ type: 'CLEAR_CODE_HISTORY' });
-            
-            console.log('📚 [loadUserData] 히스토리 스택에 버전들 추가 중...');
-            reconstructedSteps.forEach((step, index) => {
-              dispatch({ type: 'PUSH_CODE_HISTORY', payload: {
-                javascript: step.javascript,
-                css: step.css,
-                description: `서버 복원 ${index + 1}`,
-                isSuccessful: true
-              }});
-            });
-            
-            // 최신 코드를 에디터에 설정
+            // 현재 에디터 코드와 비교하여 중복 방지
+            const currentJavaScript = state.editorCode.javascript.trim();
+            const currentCss = state.editorCode.css.trim();
             const latestStep = reconstructedSteps[reconstructedSteps.length - 1];
-            if (latestStep) {
-              console.log('✏️ [loadUserData] 최신 코드를 에디터에 적용');
-              dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'javascript', code: latestStep.javascript || '' } });
-              dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'css', code: latestStep.css || '' } });
-              console.log('✅ [loadUserData] 코드 복원 완료 - JS 길이:', latestStep.javascript?.length || 0, ', CSS 길이:', latestStep.css?.length || 0);
+            
+            // 정규화된 코드로 비교 (공백, 개행 정리)
+            const normalizedLatestJS = (latestStep?.javascript || '').trim();
+            const normalizedLatestCSS = (latestStep?.css || '').trim();
+            
+            // 이미 같은 코드가 로드되어 있으면 건너뜀
+            if (latestStep && 
+                (normalizedLatestJS !== currentJavaScript || normalizedLatestCSS !== currentCss)) {
+              
+              console.log('🔄 [loadUserData] 최신 코드 미리보기 - JS:', latestStep.javascript?.substring(0, 200) || 'empty');
+              console.log('🔄 [loadUserData] 최신 코드 미리보기 - CSS:', latestStep.css?.substring(0, 200) || 'empty');
+              console.log('🔍 [loadUserData] 현재 에디터 JS:', currentJavaScript.substring(0, 200) || 'empty');
+              console.log('🔍 [loadUserData] 현재 에디터 CSS:', currentCss.substring(0, 200) || 'empty');
+              
+              // 히스토리 스택이 초기 상태만 있는 경우에만 복원
+              if (state.codeHistoryStack.length <= 1 && 
+                  state.codeHistoryStack[0]?.javascript === '' && 
+                  state.codeHistoryStack[0]?.css === '') {
+                
+                console.log('🗑️ [loadUserData] 기존 초기 히스토리 스택 클리어');
+                dispatch({ type: 'SET_RESTORING', payload: true }); // 복원 시작
+                dispatch({ type: 'CLEAR_CODE_HISTORY' });
+                
+                console.log('📚 [loadUserData] 히스토리 스택에 버전들 추가 중...');
+                reconstructedSteps.forEach((step, index) => {
+                  dispatch({ type: 'PUSH_CODE_HISTORY', payload: {
+                    javascript: step.javascript,
+                    css: step.css,
+                    description: `서버 복원 ${index + 1}`,
+                    isSuccessful: true
+                  }});
+                });
+                
+                // 최신 코드를 에디터에 설정
+                console.log('✏️ [loadUserData] 최신 코드를 에디터에 적용');
+                console.log('🔍 [loadUserData] 복원할 CSS 전체:', latestStep.css);
+                dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'javascript', code: latestStep.javascript || '' } });
+                dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'css', code: latestStep.css || '' } });
+                console.log('✅ [loadUserData] 코드 복원 완료 - JS 길이:', latestStep.javascript?.length || 0, ', CSS 길이:', latestStep.css?.length || 0);
+                dispatch({ type: 'SET_RESTORING', payload: false }); // 복원 완료
+              } else {
+                console.log('⚠️ [loadUserData] 이미 히스토리가 존재함 - 복원 건너뜀');
+              }
             } else {
-              console.log('⚠️ [loadUserData] 최신 스텝이 없음');
+              console.log('⚠️ [loadUserData] 동일한 코드 - 복원 건너뜀');
             }
           } else {
             console.log('📝 [loadUserData] 코드 버전 없음 - 히스토리 복원 건너뜀');
@@ -646,6 +675,7 @@ export function AppProvider({ children }: AppProviderProps) {
     setLoading: (loading: boolean) => dispatch({ type: 'SET_LOADING', payload: loading }),
     setError: (error: string | null) => dispatch({ type: 'SET_ERROR', payload: error }),
     togglePreviewMode: () => dispatch({ type: 'TOGGLE_PREVIEW_MODE' }),
+    setRestoring: (restoring: boolean) => dispatch({ type: 'SET_RESTORING', payload: restoring }),
     setEditorCode: (language: 'javascript' | 'css', code: string) => dispatch({ type: 'SET_EDITOR_CODE', payload: { language, code } }),
     // 코드 변경 히스토리 관련 액션들 (브라우저 스타일)
     pushCodeHistory: (history: { 

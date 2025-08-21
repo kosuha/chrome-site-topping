@@ -30,6 +30,9 @@ let isApplyingCode = false;
 let modifiedElements: Set<Element> = new Set();
 let originalEventListeners: Map<Element, EventDescriptor[]> = new Map();
 
+// Bridge readiness flag to decide local fallback tracking
+let pageBridgeReady = false;
+
 function getExtensionRoot(): HTMLElement | null {
   return document.getElementById('site-topping-root');
 }
@@ -102,15 +105,16 @@ function captureBaselineIfNeeded(): void {
 }
 
 function cleanupHeadExtras(): void {
-  if (!baselineSnapshot) return;
+  // 기존: baselineSnapshot과 비교해 head의 추가 요소들을 제거했으나,
+  // 사이트가 동적으로 삽입한 style/link 등이 제거되어 애니메이션/스타일이 깨질 수 있음.
+  // 변경: 확장프로그램이 삽입한 것으로 확실히 식별 가능한 요소만 정리.
   try {
-    const baselineSet = new Set(baselineSnapshot.headSigs);
     Array.from(document.head.children).forEach((el) => {
-      const id = (el as HTMLElement).id || '';
-      if (id.startsWith(EXTENSION_PREFIX)) return; // keep our own markers/styles
-      const sig = (el as HTMLElement).outerHTML;
-      if (!baselineSet.has(sig)) {
-        try { el.remove(); } catch {}
+      const he = el as HTMLElement;
+      const id = he.id || '';
+      const isOurEl = id.startsWith(EXTENSION_PREFIX) || he.hasAttribute('data-site-topping');
+      if (isOurEl) {
+        try { he.remove(); } catch {}
       }
     });
   } catch (e) {
@@ -118,7 +122,7 @@ function cleanupHeadExtras(): void {
   }
 }
 
-function restoreBaseline(forceFull: boolean = false): void {
+export function restoreBaseline(forceFull: boolean = false): void {
   if (!baselineSnapshot || isRestoringBaseline) return;
   isRestoringBaseline = true;
   try {
@@ -309,7 +313,7 @@ function restoreAnimationStates(): void {
       if (computedStyle.animationName !== 'none') {
         const originalDisplay = htmlEl.style.display;
         htmlEl.style.display = 'none';
-        htmlEl.offsetHeight; // Force reflow
+        void htmlEl.offsetHeight; // Force reflow by reading property
         htmlEl.style.display = originalDisplay;
       }
     });
@@ -361,6 +365,9 @@ function cleanupJavaScriptEffects(): void {
 let previewObserver: MutationObserver | null = null;
 let previewAddedNodes: Set<Element> = new Set();
 let modifiedElementsTracker: Map<Element, { originalAttributes: Map<string, string>, originalStyles: string }> = new Map();
+// Track text mutations and text nodes added during preview to revert operations like `innerHTML += '0'`
+let previewAddedTextNodes: Set<Text> = new Set();
+let previewModifiedTextNodes: Map<Text, string> = new Map();
 
 function shouldIgnoreAddedElement(el: Element): boolean {
   if (el.id && el.id.startsWith(EXTENSION_PREFIX)) return true;
@@ -377,12 +384,16 @@ function startPreviewObserver(): void {
     for (const rec of records) {
       if (rec.type === 'childList') {
         rec.addedNodes.forEach((n) => {
-          if (n.nodeType !== Node.ELEMENT_NODE) return;
-          const el = n as Element;
-          if (shouldIgnoreAddedElement(el)) return;
-          // Mark added elements for easier cleanup
-          (el as HTMLElement).setAttribute('data-site-topping-added', 'true');
-          previewAddedNodes.add(el);
+          if (n.nodeType === Node.ELEMENT_NODE) {
+            const el = n as Element;
+            if (shouldIgnoreAddedElement(el)) return;
+            // 브리지 사용 시 DOM 추가에 대한 복구는 브리지에 위임
+            // 로컬 폴백 모드에서는 텍스트 노드만 추적
+          } else if (n.nodeType === Node.TEXT_NODE) {
+            if (!pageBridgeReady) {
+              try { previewAddedTextNodes.add(n as Text); } catch {}
+            }
+          }
         });
       } else if (rec.type === 'attributes') {
         const el = rec.target as Element;
@@ -398,6 +409,16 @@ function startPreviewObserver(): void {
             });
           }
         }
+      } else if (rec.type === 'characterData') {
+        // 로컬 폴백 모드에서만 텍스트 변경을 추적
+        if (!pageBridgeReady) {
+          try {
+            const txt = rec.target as Text;
+            if (txt && rec.oldValue !== null && !previewModifiedTextNodes.has(txt)) {
+              previewModifiedTextNodes.set(txt, rec.oldValue);
+            }
+          } catch {}
+        }
       }
     }
   });
@@ -407,7 +428,9 @@ function startPreviewObserver(): void {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['style', 'class', 'data-*']
+      attributeFilter: ['style', 'class', 'data-*'],
+      characterData: true,
+      characterDataOldValue: true,
     });
   } catch (e) {
     console.warn('[Site Topping] Failed to start preview observer:', e);
@@ -420,96 +443,80 @@ function stopPreviewObserverAndCleanup(): void {
       previewObserver.disconnect();
       previewObserver = null;
     }
-    const root = getExtensionRoot();
-    previewAddedNodes.forEach((el) => {
-      try {
-        if (!el.isConnected) return;
-        if (root && (el === root || root.contains(el))) return;
-        el.remove();
-      } catch {}
-    });
+    // 이전에는 추적된 추가 노드를 DOM에서 제거했으나,
+    // 사이트 고유 동작까지 사라지는 문제가 있어 제거 로직을 중단합니다.
   } finally {
     previewAddedNodes.clear();
     modifiedElementsTracker.clear();
+    previewAddedTextNodes.clear();
+    previewModifiedTextNodes.clear();
   }
 }
 
-function cleanupExtensionCodeOnly(): void {
-  // 1. Remove extension-applied CSS/JS elements
-  removeCodeFromPage();
-  
-  // 2. Clean head elements not in baseline (extension-added)
-  cleanupHeadExtras();
-  
-  // 3. Clean up tracked elements from previous preview session
-  stopPreviewObserverAndCleanup();
-  
-  // 4. Notify page context to clean up timers/listeners
-  cleanupJavaScriptEffects();
-  
-  // 5. 추가로 확장프로그램이 수정한 요소들의 인라인 스타일 정리
-  cleanupInlineStyles();
-  
-  // Note: We don't call restoreBaseline() here to preserve user-created elements
-}
-
-function cleanupInlineStyles(): void {
+function revertDOMChangesFromPreview(): void {
   try {
-    // 확장프로그램이 추가한 data 속성을 가진 요소들의 인라인 스타일 정리
-    const modifiedElements = document.querySelectorAll('[data-site-topping-modified], [data-site-topping-added]');
-    modifiedElements.forEach(element => {
-      // data-site-topping-added 요소는 완전 제거
-      if (element.hasAttribute('data-site-topping-added')) {
-        element.remove();
-        return;
-      }
-      
-      // data-site-topping-modified 요소는 원본 스타일로 복구
-      const originalStyle = element.getAttribute('data-original-style');
-      if (originalStyle !== null) {
-        if (originalStyle === '') {
-          element.removeAttribute('style');
-        } else {
-          element.setAttribute('style', originalStyle);
-        }
-        element.removeAttribute('data-original-style');
-        element.removeAttribute('data-site-topping-modified');
-      }
+    // 브리지가 없을 때만 로컬 텍스트 변경 복구 수행 (중복 누적 방지)
+    if (!pageBridgeReady) {
+      // Revert modified text nodes first
+      previewModifiedTextNodes.forEach((oldVal, txt) => {
+        try {
+          if (!txt || !(txt as CharacterData).isConnected) return;
+          (txt as CharacterData).data = oldVal;
+        } catch {}
+      });
+      previewModifiedTextNodes.clear();
+
+      // Remove text nodes added during preview
+      previewAddedTextNodes.forEach((txt) => {
+        try {
+          if (!txt || !txt.parentNode) return;
+          txt.parentNode.removeChild(txt);
+        } catch {}
+      });
+      previewAddedTextNodes.clear();
+    }
+
+    // 1) 프리뷰 동안 변경된 속성 되돌리기
+    modifiedElementsTracker.forEach((info, el) => {
+      try {
+        if (!el || !(el as Element).isConnected) return;
+        const originalAttrs = info.originalAttributes;
+
+        // 존재하지 않았던 속성 제거(data-site-topping* 제외)
+        Array.from((el as Element).attributes).forEach((attr) => {
+          const name = attr.name;
+          if (!originalAttrs.has(name) && !name.startsWith('data-site-topping')) {
+            (el as Element).removeAttribute(name);
+          }
+        });
+
+        // 원래 값으로 복구
+        originalAttrs.forEach((value, name) => {
+          const current = (el as Element).getAttribute(name);
+          if (current !== value) {
+            if ((name === 'style' || name === 'class') && value === '') {
+              (el as Element).removeAttribute(name);
+            } else {
+              (el as Element).setAttribute(name, value);
+            }
+          }
+        });
+      } catch {}
     });
-    
-    // 페이지의 강제 reflow 유발하여 스타일 변경사항 즉시 적용
-    document.body.offsetHeight;
-    
   } catch (e) {
-    console.warn('[Site Topping] Failed to cleanup inline styles:', e);
+    console.warn('[Site Topping] Failed to revert DOM changes from preview:', e);
   }
 }
 
 // 매 재적용 전에, 프리뷰를 끄고 다시 켠 것과 동일한 강제 초기화/복구 수행
 async function fullResetForReapply(): Promise<void> {
   try {
-    // 1) 페이지 컨텍스트에 정지/강제 정리 신호
-    try { window.postMessage({ type: 'SITE_TOPPING_PREVIEW_STOP' }, '*'); } catch {}
-    try { window.postMessage({ type: 'SITE_TOPPING_FORCE_CLEANUP' }, '*'); } catch {}
-    cleanupJavaScriptEffects();
-
-    // 2) 확장 주입물 및 트래킹 정리
-    removeCodeFromPage();
-    stopPreviewObserverAndCleanup();
-    cleanupInlineStyles();
-    cleanupHeadExtras();
-
-    // 3) 베이스라인이 준비되어 있으면 전체 복구 (오프→온과 동일)
-    if (baselineSnapshot && baselineSnapshot.bodyHTML.trim().length > 0) {
-      restoreBaseline(true);
-    }
-
-    // 4) 추가적인 전역 상태 강제 정리
-    forceCleanupJavaScriptState();
-
-    // 5) 리플로/짧은 안정화 대기
-    document.body.offsetHeight;
+    // 프리뷰를 완전히 껐다가 다시 켜는 것과 동일하게 처리
+    disablePreview();
+    // DOM 안정화 대기
     await new Promise(resolve => setTimeout(resolve, 80));
+    // 브리지 준비 상태는 리셋 후 다시 판단
+    pageBridgeReady = false;
   } catch (e) {
     console.warn('[Site Topping] fullResetForReapply error:', e);
   }
@@ -530,6 +537,12 @@ export async function applyCodeToPage(css: string, js: string): Promise<void> {
 
     // 프리뷰를 끄고 다시 켠 것과 동일한 강제 초기화/복구를 먼저 수행
     await fullResetForReapply();
+
+    // 페이지 브리지 준비 확인 (로컬 추적 여부 결정)
+    try {
+      installPageMessageBridgeIfNeeded();
+      pageBridgeReady = await waitForBridgeReady(250);
+    } catch { pageBridgeReady = false; }
     
     // Start tracking nodes added during this preview session
     startPreviewObserver();
@@ -813,8 +826,19 @@ function applyBasicCSSProtection(css: string): string {
 async function applyJSCode(js: string): Promise<void> {
   try {
     console.log('[Site Topping] Attempting to execute JavaScript:', js);
-    
-    // Content script에서는 background script를 통해 실행 (가장 강력한 방법)
+
+    // 1) 페이지 브리지를 설치하고 준비 여부 확인(PING/PONG)
+    installPageMessageBridgeIfNeeded();
+    const bridgeReady = await waitForBridgeReady(250);
+    if (bridgeReady) {
+      console.log('[Site Topping] Page bridge ready, executing via postMessage');
+      await contentScriptExecution(js);
+      return;
+    } else {
+      console.warn('[Site Topping] Page bridge not ready, falling back');
+    }
+
+    // 2) 브리지가 실패한 경우에만 백그라운드 경로 시도
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       try {
         console.log('[Site Topping] Trying background script execution...');
@@ -822,13 +846,9 @@ async function applyJSCode(js: string): Promise<void> {
           type: 'EXECUTE_SCRIPT',
           code: js
         });
-        
         console.log('[Site Topping] Background script response:', response);
-        
         if (response && response.success) {
-          // 성공적으로 실행됨
           console.log('[Site Topping] JavaScript executed successfully via background script');
-          createExecutionMarker();
           return;
         } else {
           console.warn('[Site Topping] Background script execution failed or returned unsuccessful response');
@@ -837,15 +857,37 @@ async function applyJSCode(js: string): Promise<void> {
         console.error('[Site Topping] Background script execution failed:', runtimeError);
       }
     }
-    
-    // Background script 실행이 실패하거나 불가능한 경우 Content Script에서 직접 시도
-    console.log('[Site Topping] Falling back to content script execution...');
-    await contentScriptExecution(js);
-    createExecutionMarker();
-    
+
+    // 3) 최후의 수단: 폴백 실행
+    console.log('[Site Topping] Falling back to inline execution methods...');
+    fallbackJSExecution(js);
   } catch (error) {
     console.error('[Site Topping] All JavaScript execution methods failed:', error);
   }
+}
+
+function waitForBridgeReady(timeout = 250): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const handler = (event: MessageEvent) => {
+      try {
+        if (event.source !== window || !event.data) return;
+        if (event.data.type === 'SITE_TOPPING_PONG') {
+          settled = true;
+          window.removeEventListener('message', handler as any);
+          resolve(true);
+        }
+      } catch {}
+    };
+    window.addEventListener('message', handler as any);
+    try { window.postMessage({ type: 'SITE_TOPPING_PING' }, '*'); } catch {}
+    setTimeout(() => {
+      if (!settled) {
+        window.removeEventListener('message', handler as any);
+        resolve(false);
+      }
+    }, timeout);
+  });
 }
 
 async function contentScriptExecution(js: string): Promise<void> {
@@ -856,170 +898,7 @@ async function contentScriptExecution(js: string): Promise<void> {
     console.log('[Site Topping] Trying postMessage method...');
     
     // 페이지에 리스너 설치 (한 번만)
-    if (!(window as any).__siteTopping_pageListener) {
-      console.log('[Site Topping] Installing page message listener...');
-      const script = document.createElement('script');
-      script.textContent = `
-        (function() {
-          if (window.__siteTopping_messageListener) return;
-          
-          // Enhanced timer patching with event listener preservation
-          (function() {
-            if (window.__siteTopping_timerPatched) return;
-            window.__siteTopping_timerPatched = true;
-            window.__siteTopping_previewActive = true;
-            window.__siteTopping_timeoutIds = [];
-            window.__siteTopping_intervalIds = [];
-            window.__siteTopping_rafIds = [];
-            window.__siteTopping_originalListeners = new Map();
-            window.__siteTopping_addedListeners = new Map();
-            
-            const _setTimeout = window.setTimeout;
-            const _setInterval = window.setInterval;
-            const _raf = window.requestAnimationFrame;
-            const _clearTimeout = window.clearTimeout;
-            const _clearInterval = window.clearInterval;
-            const _cancelAnimationFrame = window.cancelAnimationFrame || (window as any).webkitCancelAnimationFrame;
-            const _addEventListener = Element.prototype.addEventListener;
-            const _removeEventListener = Element.prototype.removeEventListener;
-            
-            window.setTimeout = function(cb, t) {
-              const id = _setTimeout(cb, t);
-              try { window.__siteTopping_timeoutIds.push(id); } catch {}
-              return id;
-            } as any;
-            
-            window.setInterval = function(cb, t) {
-              const id = _setInterval(cb, t);
-              try { window.__siteTopping_intervalIds.push(id); } catch {}
-              return id;
-            } as any;
-            
-            window.requestAnimationFrame = function(cb) {
-              const id = _raf(cb);
-              try { window.__siteTopping_rafIds.push(id); } catch {}
-              return id;
-            } as any;
-            
-            // Track event listeners added during preview
-            Element.prototype.addEventListener = function(type, listener, options) {
-              if (window.__siteTopping_previewActive) {
-                const key = this;
-                if (!window.__siteTopping_addedListeners.has(key)) {
-                  window.__siteTopping_addedListeners.set(key, []);
-                }
-                window.__siteTopping_addedListeners.get(key).push({ type, listener, options });
-              }
-              return _addEventListener.call(this, type, listener, options);
-            };
-            
-            Element.prototype.removeEventListener = function(type, listener, options) {
-              return _removeEventListener.call(this, type, listener, options);
-            };
-            
-            window.__siteTopping_clearPreviewTimers = function() {
-              try { (window.__siteTopping_timeoutIds||[]).forEach(function(id){ _clearTimeout(id); }); } catch {}
-              try { (window.__siteTopping_intervalIds||[]).forEach(function(id){ _clearInterval(id); }); } catch {}
-              try { (window.__siteTopping_rafIds||[]).forEach(function(id){ if (_cancelAnimationFrame) _cancelAnimationFrame(id); }); } catch {}
-              window.__siteTopping_timeoutIds = [];
-              window.__siteTopping_intervalIds = [];
-              window.__siteTopping_rafIds = [];
-            };
-            
-            window.__siteTopping_cleanupEventListeners = function() {
-              // Remove event listeners added during preview
-              try {
-                window.__siteTopping_addedListeners.forEach(function(listeners, element) {
-                  listeners.forEach(function(desc) {
-                    try {
-                      _removeEventListener.call(element, desc.type, desc.listener, desc.options);
-                    } catch {}
-                  });
-                });
-                window.__siteTopping_addedListeners.clear();
-              } catch {}
-            };
-            
-            window.__siteTopping_restoreEventListeners = function() {
-              // Restore addEventListener and removeEventListener
-              Element.prototype.addEventListener = _addEventListener;
-              Element.prototype.removeEventListener = _removeEventListener;
-            };
-          })();
-          
-          window.__siteTopping_messageListener = true;
-          console.log('[Page Context] Site Topping message listener installed');
-          
-          window.addEventListener('message', function(event) {
-            if (event.source !== window || !event.data) return;
-            var data = event.data;
-            
-            console.log('[Page Context] Received message:', data);
-            
-            try {
-              if (data.type === 'SITE_TOPPING_PREVIEW_START') {
-                console.log('[Page Context] Preview start');
-                window.__siteTopping_previewActive = true;
-                return;
-              }
-              if (data.type === 'SITE_TOPPING_PREVIEW_STOP') {
-                console.log('[Page Context] Preview stop');
-                window.__siteTopping_previewActive = false;
-                if (typeof window.__siteTopping_clearPreviewTimers === 'function') {
-                  window.__siteTopping_clearPreviewTimers();
-                }
-                if (typeof window.__siteTopping_cleanupEventListeners === 'function') {
-                  window.__siteTopping_cleanupEventListeners();
-                }
-                return;
-              }
-              if (data.type === 'SITE_TOPPING_FORCE_CLEANUP') {
-                console.log('[Page Context] Force cleanup');
-                // Force cleanup and restore original methods
-                if (typeof window.__siteTopping_clearPreviewTimers === 'function') {
-                  window.__siteTopping_clearPreviewTimers();
-                }
-                if (typeof window.__siteTopping_cleanupEventListeners === 'function') {
-                  window.__siteTopping_cleanupEventListeners();
-                }
-                if (typeof window.__siteTopping_restoreEventListeners === 'function') {
-                  window.__siteTopping_restoreEventListeners();
-                }
-                return;
-              }
-              if (data.type === 'SITE_TOPPING_EXECUTE') {
-                console.log('[Page Context] Executing JavaScript:', data.code);
-                // Execute user code using Function constructor (CSP 정책 준수)
-                try {
-                  const func = new Function(data.code);
-                  const result = func();
-                  console.log('[Page Context] JavaScript executed successfully via Function constructor, result:', result);
-                } catch (funcErr) {
-                  console.error('[Page Context] Function constructor failed:', funcErr);
-                  // Script element fallback
-                  try {
-                    console.log('[Page Context] Trying script element fallback...');
-                    const script = document.createElement('script');
-                    script.textContent = data.code;
-                    document.head.appendChild(script);
-                    document.head.removeChild(script);
-                    console.log('[Page Context] JavaScript executed successfully via script element');
-                  } catch (scriptErr) {
-                    console.error('[Page Context] Script element failed:', scriptErr);
-                  }
-                }
-                return;
-              }
-            } catch (e) {
-              console.error('[Page Context] Execution error:', e);
-            }
-          });
-        })();
-      `;
-      document.head.appendChild(script);
-      script.remove();
-      (window as any).__siteTopping_pageListener = true;
-    }
+    installPageMessageBridgeIfNeeded();
     
     // 메시지 전송
     console.log('[Site Topping] Sending postMessage to execute JavaScript...');
@@ -1035,86 +914,271 @@ async function contentScriptExecution(js: string): Promise<void> {
   }
   
   // Method 2: 개선된 fallback 방법들
-  await advancedFallbackExecution(js);
+  // await advancedFallbackExecution(js); // 참조 문제 회피
+  fallbackJSExecution(js);
+  return;
 }
 
-async function advancedFallbackExecution(js: string): Promise<void> {
-  // Method 1: Web Worker를 통한 실행 (일부 CSP 우회 가능)
+function installPageMessageBridgeIfNeeded(): void {
   try {
-    const workerCode = `
-      self.onmessage = function(e) {
-        try {
-          // Function constructor 사용 (CSP 정책 준수)
-          const func = new Function(e.data);
-          func();
-          self.postMessage({ success: true });
-        } catch (funcError) {
-          // Blob URL 방식 fallback
-          try {
-            const blob = new Blob([e.data], { type: 'application/javascript' });
-            const url = URL.createObjectURL(blob);
-            importScripts(url);
-            URL.revokeObjectURL(url);
-            self.postMessage({ success: true });
-          } catch (error) {
-            self.postMessage({ success: false, error: error.message });
+    const script = document.createElement('script');
+    script.textContent = `
+      (function() {
+        if (window.__siteTopping_messageListener) return;
+        
+        (function() {
+          if (window.__siteTopping_timerPatched) return;
+          window.__siteTopping_timerPatched = true;
+          window.__siteTopping_previewActive = true;
+          window.__siteTopping_inUserCode = false;
+          
+          window.__siteTopping_timeoutIds = [];
+          window.__siteTopping_intervalIds = [];
+          window.__siteTopping_rafIds = [];
+          window.__siteTopping_addedNodes = new Set();
+          window.__siteTopping_modifiedTexts = new Map();
+          window.__siteTopping_innerHTMLBackup = new Map();
+          window.__siteTopping_addedListeners = new Map();
+          
+          const _setTimeout = window.setTimeout;
+          const _setInterval = window.setInterval;
+          const _raf = window.requestAnimationFrame;
+          const _clearTimeout = window.clearTimeout;
+          const _clearInterval = window.clearInterval;
+          const _cancelAnimationFrame = window.cancelAnimationFrame || (window as any).webkitCancelAnimationFrame;
+          const _addEventListener = Element.prototype.addEventListener;
+          const _removeEventListener = Element.prototype.removeEventListener;
+          const _appendChild = Node.prototype.appendChild;
+          const _insertBefore = Node.prototype.insertBefore;
+          const _replaceChild = Node.prototype.replaceChild;
+          const _removeChild = Node.prototype.removeChild;
+          const _insertAdjacentHTML = Element.prototype.insertAdjacentHTML;
+          
+          const innerHTMLDesc = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+          const textContentDesc = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
+          const nodeValueDesc = Object.getOwnPropertyDescriptor(CharacterData.prototype, 'nodeValue');
+          
+          function shouldTrackNode(node) {
+            try {
+              if (!node) return false;
+              if (node.nodeType === Node.ELEMENT_NODE) {
+                const el = node as any;
+                if (el.id && el.id.startsWith('site-topping-')) return false;
+                if (el.closest && el.closest('#site-topping-root')) return false;
+              }
+              return true;
+            } catch { return false; }
           }
-        }
-      };
+          function trackAdded(node) {
+            try {
+              if (!window.__siteTopping_previewActive || !window.__siteTopping_inUserCode) return;
+              if (!shouldTrackNode(node)) return;
+              window.__siteTopping_addedNodes.add(node);
+            } catch {}
+          }
+          function backupInnerHTML(el) {
+            try {
+              if (!window.__siteTopping_previewActive || !window.__siteTopping_inUserCode) return;
+              if (!el || window.__siteTopping_innerHTMLBackup.has(el)) return;
+              if (el.closest && el.closest('#site-topping-root')) return;
+              if (innerHTMLDesc && innerHTMLDesc.get) {
+                const old = innerHTMLDesc.get.call(el);
+                window.__siteTopping_innerHTMLBackup.set(el, old);
+              }
+            } catch {}
+          }
+          function backupTextNode(textNode) {
+            try {
+              if (!window.__siteTopping_previewActive || !window.__siteTopping_inUserCode) return;
+              if (!textNode || window.__siteTopping_modifiedTexts.has(textNode)) return;
+              window.__siteTopping_modifiedTexts.set(textNode, textNode.data);
+            } catch {}
+          }
+          
+          window.setTimeout = function(cb, t) {
+            const wrapped = function() {
+              try { window.__siteTopping_inUserCode = true; return cb.apply(this, arguments as any); }
+              finally { window.__siteTopping_inUserCode = false; }
+            } as any;
+            const id = _setTimeout(wrapped, t as any);
+            try { if (window.__siteTopping_previewActive) (window.__siteTopping_timeoutIds as any[]).push(id as any); } catch {}
+            return id as any;
+          } as any;
+          window.setInterval = function(cb, t) {
+            const wrapped = function() {
+              try { window.__siteTopping_inUserCode = true; return cb.apply(this, arguments as any); }
+              finally { window.__siteTopping_inUserCode = false; }
+            } as any;
+            const id = _setInterval(wrapped, t as any);
+            try { if (window.__siteTopping_previewActive) (window.__siteTopping_intervalIds as any[]).push(id as any); } catch {}
+            return id as any;
+          } as any;
+          window.requestAnimationFrame = function(cb) {
+            const wrapped = function(ts) {
+              try { window.__siteTopping_inUserCode = true; return (cb as any).call(this, ts); }
+              finally { window.__siteTopping_inUserCode = false; }
+            } as any;
+            const id = _raf(wrapped as any);
+            try { if (window.__siteTopping_previewActive) (window.__siteTopping_rafIds as any[]).push(id as any); } catch {}
+            return id as any;
+          } as any;
+          
+          Node.prototype.appendChild = function(child) {
+            const res = _appendChild.call(this, child);
+            trackAdded(child);
+            return res;
+          };
+          Node.prototype.insertBefore = function(newNode, referenceNode) {
+            const res = _insertBefore.call(this, newNode, referenceNode);
+            trackAdded(newNode);
+            return res;
+          };
+          Node.prototype.replaceChild = function(newChild, oldChild) {
+            const res = _replaceChild.call(this, newChild, oldChild);
+            trackAdded(newChild);
+            return res;
+          };
+          Node.prototype.removeChild = function(child) {
+            return _removeChild.call(this, child);
+          };
+          Element.prototype.insertAdjacentHTML = function(position, text) {
+            backupInnerHTML(this);
+            return _insertAdjacentHTML.call(this, position, text);
+          };
+          if (innerHTMLDesc && innerHTMLDesc.set && innerHTMLDesc.get) {
+            Object.defineProperty(Element.prototype, 'innerHTML', {
+              configurable: true,
+              get: innerHTMLDesc.get,
+              set: function(v) {
+                backupInnerHTML(this);
+                return innerHTMLDesc.set.call(this, v);
+              }
+            });
+          }
+          if (textContentDesc && textContentDesc.set) {
+            Object.defineProperty(Node.prototype, 'textContent', {
+              configurable: true,
+              get: textContentDesc.get,
+              set: function(v) {
+                if (this && this.nodeType === Node.TEXT_NODE) backupTextNode(this as any);
+                return textContentDesc.set.call(this, v);
+              }
+            });
+          }
+          if (nodeValueDesc && nodeValueDesc.set) {
+            Object.defineProperty(CharacterData.prototype, 'nodeValue', {
+              configurable: true,
+              get: nodeValueDesc.get,
+              set: function(v) {
+                backupTextNode(this as any);
+                return nodeValueDesc.set.call(this, v);
+              }
+            });
+          }
+          
+          (window as any).__siteTopping_clearPreviewTimers = function() {
+            try { (window.__siteTopping_timeoutIds||[]).forEach(function(id){ _clearTimeout(id as any); }); } catch {}
+            try { (window.__siteTopping_intervalIds||[]).forEach(function(id){ _clearInterval(id as any); }); } catch {}
+            try { (window.__siteTopping_rafIds||[]).forEach(function(id){ if (_cancelAnimationFrame) _cancelAnimationFrame(id as any); }); } catch {}
+            (window as any).__siteTopping_timeoutIds = [];
+            (window as any).__siteTopping_intervalIds = [];
+            (window as any).__siteTopping_rafIds = [];
+          };
+          (window as any).__siteTopping_cleanupEventListeners = function() {
+            try {
+              if (!(window as any).__siteTopping_addedListeners) return;
+              (window as any).__siteTopping_addedListeners.forEach(function(listeners, element) {
+                listeners.forEach(function(desc) {
+                  try { _removeEventListener.call(element, desc.type, desc.listener, desc.options); } catch {}
+                });
+              });
+              (window as any).__siteTopping_addedListeners.clear();
+            } catch {}
+          };
+          (window as any).__siteTopping_restoreEventListeners = function() {
+            Element.prototype.addEventListener = _addEventListener;
+            Element.prototype.removeEventListener = _removeEventListener;
+          };
+          (window as any).__siteTopping_revertDOM = function() {
+            try {
+              (window as any).__siteTopping_innerHTMLBackup.forEach(function(oldHTML, el) {
+                try {
+                  if (!el || !(el as any).isConnected) return;
+                  if ((el as any).closest && (el as any).closest('#site-topping-root')) return;
+                  (el as any).innerHTML = oldHTML;
+                } catch {}
+              });
+              (window as any).__siteTopping_innerHTMLBackup.clear();
+              (window as any).__siteTopping_modifiedTexts.forEach(function(oldVal, txt) {
+                try { if (!txt || !(txt as any).isConnected) return; (txt as any).data = oldVal; } catch {}
+              });
+              (window as any).__siteTopping_modifiedTexts.clear();
+              Array.from((window as any).__siteTopping_addedNodes || []).forEach(function(n:any){
+                try {
+                  if (!n || !(n as any).isConnected) return;
+                  if ((n as any).closest && (n as any).closest('#site-topping-root')) return;
+                  (n as any).parentNode && (n as any).parentNode.removeChild(n);
+                } catch {}
+              });
+              (window as any).__siteTopping_addedNodes.clear();
+            } catch {}
+          };
+        })();
+        
+        window.__siteTopping_messageListener = true;
+        window.addEventListener('message', function(event) {
+          if (event.source !== window || !event.data) return;
+          var data = event.data;
+          try {
+            if (data.type === 'SITE_TOPPING_PREVIEW_START') {
+              window.__siteTopping_previewActive = true; return;
+            }
+            if (data.type === 'SITE_TOPPING_PREVIEW_STOP') {
+              window.__siteTopping_previewActive = false;
+              if (typeof (window as any).__siteTopping_clearPreviewTimers === 'function') (window as any).__siteTopping_clearPreviewTimers();
+              if (typeof (window as any).__siteTopping_cleanupEventListeners === 'function') (window as any).__siteTopping_cleanupEventListeners();
+              if (typeof (window as any).__siteTopping_revertDOM === 'function') (window as any).__siteTopping_revertDOM();
+              return;
+            }
+            if (data.type === 'SITE_TOPPING_FORCE_CLEANUP') {
+              if (typeof (window as any).__siteTopping_clearPreviewTimers === 'function') (window as any).__siteTopping_clearPreviewTimers();
+              if (typeof (window as any).__siteTopping_cleanupEventListeners === 'function') (window as any).__siteTopping_cleanupEventListeners();
+              if (typeof (window as any).__siteTopping_restoreEventListeners === 'function') (window as any).__siteTopping_restoreEventListeners();
+              if (typeof (window as any).__siteTopping_revertDOM === 'function') (window as any).__siteTopping_revertDOM();
+              return;
+            }
+            if (data.type === 'SITE_TOPPING_PING') {
+              window.postMessage({ type: 'SITE_TOPPING_PONG' }, '*');
+              return;
+            }
+            if (data.type === 'SITE_TOPPING_EXECUTE') {
+              try {
+                window.__siteTopping_inUserCode = true;
+                try { (new Function(data.code))(); }
+                finally { window.__siteTopping_inUserCode = false; }
+              } catch (e) {
+                try {
+                  window.__siteTopping_inUserCode = true;
+                  try {
+                    const s = document.createElement('script');
+                    s.textContent = data.code;
+                    document.head.appendChild(s);
+                    document.head.removeChild(s);
+                  } finally { window.__siteTopping_inUserCode = false; }
+                } catch {}
+              }
+              return;
+            }
+          } catch (e) {}
+        });
+      })();
     `;
-    
-    const blob = new Blob([workerCode], { type: 'application/javascript' });
-    const worker = new Worker(URL.createObjectURL(blob));
-    
-    return new Promise((resolve) => {
-      worker.onmessage = (_: MessageEvent) => {
-
-        worker.terminate();
-        resolve();
-      };
-      
-      worker.onerror = () => {
-        worker.terminate();
-        resolve();
-      };
-      
-      worker.postMessage(js);
-      
-      // 타임아웃 설정
-      setTimeout(() => {
-        worker.terminate();
-        resolve();
-      }, 5000);
-    });
-  } catch (workerError) {
-    console.error('[Site Topping] Web Worker method failed:', workerError);
-    
-    // 기존 fallback 방법들 시도
-    fallbackJSExecution(js);
-  }
+    document.head.appendChild(script);
+    script.remove();
+  } catch {}
 }
 
-function createExecutionMarker(): void {
-  // 기존 JS 마커가 있다면 제거
-  const existingMarker = document.getElementById(`${EXTENSION_PREFIX}injected-js-marker`);
-  if (existingMarker) {
-    existingMarker.remove();
-  }
-
-  // 추적을 위해 더미 스크립트 엘리먼트 생성
-  const markerElement = document.createElement('script');
-  markerElement.id = `${EXTENSION_PREFIX}injected-js-marker`;
-  markerElement.setAttribute('data-type', 'text/plain');
-  markerElement.setAttribute('data-site-topping', 'true');
-  markerElement.dataset.applied = 'true';
-  markerElement.dataset.timestamp = Date.now().toString();
-  document.head.appendChild(markerElement);
-  appliedCode.js = markerElement;
-}
-
-// Fallback methods for JS execution
 function fallbackJSExecution(js: string): void {
-  // Method 1: Blob URL 방식
   try {
     const blob = new Blob([js], { type: 'application/javascript' });
     const url = URL.createObjectURL(blob);
@@ -1123,151 +1187,70 @@ function fallbackJSExecution(js: string): void {
     script.onload = () => URL.revokeObjectURL(url);
     document.head.appendChild(script);
     return;
-  } catch (blobError) {
-    console.warn('[Site Topping] Blob URL method failed:', blobError);
-  }
-
-  // Method 2: Data URL 방식
+  } catch {}
   try {
     const dataUrl = `data:application/javascript;base64,${btoa(js)}`;
     const script = document.createElement('script');
     script.src = dataUrl;
     document.head.appendChild(script);
     return;
-  } catch (dataUrlError) {
-    console.warn('[Site Topping] Data URL method failed:', dataUrlError);
-  }
-
-  // Method 3: Function 생성자 (이미 실패했지만 다시 시도)
-  try {
-    const func = new Function(js);
-    func();
-  } catch (error) {
-    console.warn('[Site Topping] All JavaScript execution methods failed. CSP is too restrictive.');
-  }
+  } catch {}
+  try { (new Function(js))(); } catch {}
 }
 
-export function isCodeApplied(): boolean {
-  return !!(appliedCode.css || appliedCode.js);
-}
-
-export function disablePreview(): void {
-  // 코드 적용 중이면 잠시 대기
-  if (isApplyingCode) {
-    console.warn('[Site Topping] Disable preview blocked - code application in progress');
-    setTimeout(disablePreview, 150);
-    return;
-  }
-  
-  console.log('[Site Topping] Disabling preview - performing complete restoration');
-  
-  // 완전한 프리뷰 상태 초기화
+function cleanupInlineStyles(): void {
   try {
-    // 1. JavaScript 실행 환경 완전 정리 (먼저 실행)
-    cleanupJavaScriptEffects();
-    
-    // 2. 페이지 컨텍스트에 강력한 정리 신호 전송
-    window.postMessage({ type: 'SITE_TOPPING_PREVIEW_STOP' }, '*');
-    window.postMessage({ type: 'SITE_TOPPING_FORCE_CLEANUP' }, '*');
-    
-    // 3. 짧은 대기로 페이지 컨텍스트 정리가 완료되도록 함
-    setTimeout(() => {
-      try {
-        // 4. 확장프로그램 코드 완전 제거
-        removeCodeFromPage();
-        cleanupExtensionCodeOnly();
-        
-        // 5. 베이스라인 복구 (항상 전체 복구 강제) - 단, 베이스라인이 유효할 때만
-        if (baselineSnapshot && baselineSnapshot.bodyHTML.trim().length > 0) {
-          restoreBaseline(true);
-        } else {
-          console.warn('[Site Topping] Skip full restore - baseline not ready');
-        }
-        
-        // 6. 추가 정리 작업
-        forceCleanupJavaScriptState();
-        
-        // 7. 강제 reflow로 변경사항 즉시 적용
-        document.body.offsetHeight;
-        document.documentElement.offsetHeight;
-        
-        // 8. 페이지 리페인트 강제 실행
-        if (window.getComputedStyle) {
-          window.getComputedStyle(document.body).display;
-        }
-        
-        console.log('[Site Topping] Preview disabled and baseline restored');
-        
-      } catch (innerError) {
-        console.error('[Site Topping] Error during delayed restoration:', innerError);
+    const modifiedElements = document.querySelectorAll('[data-site-topping-modified], [data-site-topping-added]');
+    modifiedElements.forEach(element => {
+      if (element.hasAttribute('data-site-topping-added')) {
+        try { element.remove(); } catch {}
+        return;
       }
-    }, 10);
-    
-  } catch (error) {
-    console.error('[Site Topping] Error during preview disable:', error);
+      const originalStyle = element.getAttribute('data-original-style');
+      if (originalStyle !== null) {
+        if (originalStyle === '') {
+          (element as HTMLElement).removeAttribute('style');
+        } else {
+          (element as HTMLElement).setAttribute('style', originalStyle);
+        }
+        (element as HTMLElement).removeAttribute('data-original-style');
+        (element as HTMLElement).removeAttribute('data-site-topping-modified');
+      }
+    });
+    document.body.offsetHeight;
+  } catch (e) {
+    console.warn('[Site Topping] Failed to cleanup inline styles:', e);
   }
 }
 
-// JavaScript 실행으로 인한 전역 상태를 강제로 정리하는 함수
-function forceCleanupJavaScriptState(): void {
+// 완전한 원상복구를 수행하는 공개 API
+export function disablePreview(): void {
   try {
-    console.log('[Site Topping] Performing force cleanup of JavaScript state');
-    
-    // 페이지에 추가 정리 스크립트 주입
-    const cleanupScript = document.createElement('script');
-    cleanupScript.textContent = `
-      (function() {
-        try {
-          // 사용자 코드에서 생성했을 가능성이 있는 전역 변수들 정리
-          if (typeof window.__userCodeCleanup === 'function') {
-            window.__userCodeCleanup();
-          }
-          
-          // DOM 이벤트 리스너들 중 사용자 코드가 추가한 것들 정리
-          const allElements = document.querySelectorAll('*');
-          allElements.forEach(el => {
-            if (el.id !== 'site-topping-root' && !el.closest('#site-topping-root')) {
-              // Clone node를 사용해서 이벤트 리스너 제거 (극단적 방법)
-              if (el.__siteTopping_hasUserEvents) {
-                const parent = el.parentNode;
-                const clone = el.cloneNode(true);
-                if (parent) {
-                  parent.replaceChild(clone, el);
-                }
-              }
-            }
-          });
-          
-          // 추가된 커스텀 CSS 클래스 제거
-          document.querySelectorAll('[class*="user-"], [class*="temp-"], [class*="dynamic-"]').forEach(el => {
-            if (el.id !== 'site-topping-root' && !el.closest('#site-topping-root')) {
-              // 사용자가 추가했을 가능성이 있는 클래스들 제거
-              const classes = Array.from(el.classList);
-              classes.forEach(className => {
-                if (className.includes('user-') || className.includes('temp-') || className.includes('dynamic-')) {
-                  el.classList.remove(className);
-                }
-              });
-            }
-          });
-          
-          console.log('[Page Context] Force cleanup completed');
-        } catch (e) {
-          console.warn('[Page Context] Force cleanup error:', e);
-        }
-      })();
-    `;
-    
-    document.head.appendChild(cleanupScript);
-    
-    // 정리 스크립트 제거
-    setTimeout(() => {
-      try {
-        cleanupScript.remove();
-      } catch {}
-    }, 100);
-    
-  } catch (error) {
-    console.warn('[Site Topping] Force cleanup failed:', error);
+    // 1) 페이지 컨텍스트에 정리 신호 전송
+    try { window.postMessage({ type: 'SITE_TOPPING_PREVIEW_STOP' }, '*'); } catch {}
+    try { window.postMessage({ type: 'SITE_TOPPING_FORCE_CLEANUP' }, '*'); } catch {}
+
+    // 2) 프리뷰 중 추적된 변경사항 되돌리기 (베이스라인이 없을 경우 대비)
+    revertDOMChangesFromPreview();
+
+    // 3) 확장 주입물 정리 및 헤드 정리
+    removeCodeFromPage();
+    cleanupHeadExtras();
+
+    // 4) 옵저버 중지 및 트래킹 정리
+    stopPreviewObserverAndCleanup();
+
+    // 5) JS 효과 및 인라인 스타일 정리
+    cleanupJavaScriptEffects();
+    cleanupInlineStyles();
+
+    // 6) 베이스라인으로 완전 복구 시도 (가능하면 강제 전체 복구)
+    restoreBaseline(true);
+
+    // 7) 약간의 안정화 처리
+    document.body.offsetHeight;
+    setTimeout(() => { try { window.dispatchEvent(new Event('resize')); } catch {} }, 50);
+  } catch (e) {
+    console.warn('[Site Topping] disablePreview failed:', e);
   }
 }

@@ -14,6 +14,13 @@ export default function usePersistHistory() {
     const stackLen = state.codeHistoryStack.length;
     const prevLen = prevStackLenRef.current;
 
+    // 복원 중일 때는 저장하지 않음
+    if (state.isRestoring) {
+      console.log('🚫 [usePersistHistory] 복원 중이므로 저장 건너뜀');
+      prevStackLenRef.current = stackLen;
+      return;
+    }
+
     // push가 발생한 경우(스택 길이 증가)에만 저장 로직 수행
     if (stackLen > prevLen && state.currentHistoryIndex === stackLen - 1) {
       const current: any = state.codeHistoryStack[stackLen - 1];
@@ -21,7 +28,8 @@ export default function usePersistHistory() {
 
       // 복원/초기화로 추가된 항목은 저장하지 않음
       const desc = (current?.description || '').toString();
-      if (desc.includes('복원됨') || desc.includes('히스토리 초기화')) {
+      if (desc.includes('복원됨') || desc.includes('히스토리 초기화') || desc.includes('서버 복원')) {
+        console.log('🚫 [usePersistHistory] 복원/초기화 항목은 서버 저장 건너뜀:', desc);
         prevStackLenRef.current = stackLen;
         return;
       }
@@ -44,5 +52,5 @@ export default function usePersistHistory() {
     }
 
     prevStackLenRef.current = stackLen;
-  }, [state.codeHistoryStack, state.currentHistoryIndex]);
+  }, [state.codeHistoryStack, state.currentHistoryIndex, state.isRestoring]);
 }
