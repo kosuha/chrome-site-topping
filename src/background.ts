@@ -1,5 +1,14 @@
 import { supabase } from './services/supabase';
 
+// 현재 적용된 프리뷰 코드 추적
+interface AppliedPreview {
+  tabId: number;
+  cssCode: string;
+  jsCode: string;
+}
+
+const appliedPreviews = new Map<number, AppliedPreview>();
+
 // Initialize declarativeNetRequest rules
 chrome.runtime.onInstalled.addListener(async () => {
     console.log('[Background] Extension installed, static blocking rules from rules.json are active');
@@ -64,8 +73,23 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     }
 });
 
-// Content script에서 오는 JavaScript 실행 요청 처리
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {    
+// 메시지 핸들러
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    console.log('[Background] 메시지 수신:', message.type);
+    
+    // 코드 프리뷰 적용 요청
+    if (message.type === 'APPLY_CODE_PREVIEW') {
+        handleApplyCodePreview(message, sender, sendResponse);
+        return true;
+    }
+    
+    // 코드 프리뷰 제거 요청
+    if (message.type === 'REMOVE_CODE_PREVIEW') {
+        handleRemoveCodePreview(message, sender, sendResponse);
+        return true;
+    }
+    
+    // 기존 JavaScript 실행 요청
     if (message.type === 'EXECUTE_SCRIPT' && sender.tab?.id) {
         executeScriptInTab(sender.tab.id, message.code)
             .then((result) => {
@@ -74,7 +98,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             .catch((error) => {
                 sendResponse({ success: false, error: error.message });
             });
-        return true; // 비동기 응답을 위해 true 반환
+        return true;
     }
 
     // 현재 도메인 가져오기 요청 처리 (sidepanel용)
@@ -333,5 +357,310 @@ async function initOAuth(provider: string) {
     } catch (error) {
         console.error('OAuth initialization error:', error)
         throw error
+    }
+}
+
+// ====== 코드 프리뷰 함수들 ======
+
+/**
+ * 코드 프리뷰 적용 핸들러
+ */
+async function handleApplyCodePreview(message: any, sender: chrome.runtime.MessageSender, sendResponse: (response: any) => void) {
+    try {
+        const { css, js, tabId } = message;
+        
+        // 현재 활성 탭 ID 가져오기
+        let targetTabId = tabId || sender.tab?.id;
+        
+        if (!targetTabId) {
+            // Side Panel에서 호출하는 경우, 현재 활성 탭을 찾음
+            const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!activeTab?.id) {
+                throw new Error('활성 탭을 찾을 수 없습니다');
+            }
+            targetTabId = activeTab.id;
+        }
+        
+        console.log(`[Background] 코드 프리뷰 적용 - 탭 ${targetTabId}, CSS: ${css?.length || 0}자, JS: ${js?.length || 0}자`);
+        
+        // ✅ 중복 방지: 기존 프리뷰를 완전히 제거 후 새 코드 적용
+        console.log('[Background] 기존 프리뷰 제거 중...');
+        await removePreviewFromTab(targetTabId);
+        
+        // 제거 후 잠깐 대기 (DOM 안정화)
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // CSS 적용
+        if (css && css.trim()) {
+            await applyCSSToTab(targetTabId, css);
+        }
+        
+        // JavaScript 적용
+        if (js && js.trim()) {
+            await applyJSToTab(targetTabId, js);
+        }
+        
+        // 적용된 코드 추적
+        appliedPreviews.set(targetTabId, {
+            tabId: targetTabId,
+            cssCode: css || '',
+            jsCode: js || ''
+        });
+        
+        console.log('[Background] 코드 프리뷰 적용 완료');
+        sendResponse({ success: true });
+        
+    } catch (error) {
+        console.error('[Background] 코드 프리뷰 적용 실패:', error);
+        sendResponse({ success: false, error: error instanceof Error ? error.message : '알 수 없는 오류' });
+    }
+}
+
+/**
+ * 코드 프리뷰 제거 핸들러
+ */
+async function handleRemoveCodePreview(message: any, sender: chrome.runtime.MessageSender, sendResponse: (response: any) => void) {
+    try {
+        const { tabId } = message;
+        
+        // 현재 활성 탭 ID 가져오기
+        let targetTabId = tabId || sender.tab?.id;
+        
+        if (!targetTabId) {
+            // Side Panel에서 호출하는 경우, 현재 활성 탭을 찾음
+            const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!activeTab?.id) {
+                throw new Error('활성 탭을 찾을 수 없습니다');
+            }
+            targetTabId = activeTab.id;
+        }
+        
+        console.log(`[Background] 코드 프리뷰 제거 - 탭 ${targetTabId}`);
+        
+        await removePreviewFromTab(targetTabId);
+        appliedPreviews.delete(targetTabId);
+        
+        console.log('[Background] 코드 프리뷰 제거 완료');
+        sendResponse({ success: true });
+        
+    } catch (error) {
+        console.error('[Background] 코드 프리뷰 제거 실패:', error);
+        sendResponse({ success: false, error: error instanceof Error ? error.message : '알 수 없는 오류' });
+    }
+}
+
+/**
+ * 탭에 CSS 적용
+ */
+async function applyCSSToTab(tabId: number, css: string) {
+    const scopedCSS = addCSSScoping(css);
+    
+    await chrome.scripting.insertCSS({
+        target: { tabId },
+        css: scopedCSS,
+    });
+    
+    console.log('[Background] CSS 적용 완료');
+}
+
+/**
+ * 탭에 JavaScript 적용
+ */
+async function applyJSToTab(tabId: number, js: string) {
+    await chrome.scripting.executeScript({
+        target: { tabId },
+        world: 'MAIN', // 페이지 메인 컨텍스트에서 실행
+        func: (jsCode: string) => {
+            try {
+                // ✅ 이전 변경사항 복원 시도
+                console.log('[WebPage] 이전 JavaScript 변경사항 복원 시도...');
+                
+                // Site Topping이 변경했을 수 있는 공통 속성들을 기본값으로 복원
+                const elementsToRestore = [
+                    document.documentElement,
+                    document.body,
+                    ...Array.from(document.querySelectorAll('*')).slice(0, 50) // 상위 50개 요소만
+                ];
+                
+                elementsToRestore.forEach(el => {
+                    if (el && (el as HTMLElement).style) {
+                        const htmlEl = el as HTMLElement;
+                        // 자주 변경되는 스타일 속성들을 초기값으로 복원
+                        const commonProps = [
+                            'backgroundColor', 'color', 'fontSize', 'border', 
+                            'margin', 'padding', 'display', 'opacity',
+                            'transform', 'width', 'height'
+                        ];
+                        
+                        commonProps.forEach(prop => {
+                            if (htmlEl.style.getPropertyValue(prop)) {
+                                htmlEl.style.removeProperty(prop);
+                            }
+                        });
+                    }
+                });
+                
+                // 새로운 JavaScript 실행
+                new Function(jsCode)();
+                console.log('[WebPage] JavaScript 실행 완료 (복원 시도 포함)');
+            } catch (error) {
+                console.error('[WebPage] JavaScript 실행 오류:', error);
+                throw error;
+            }
+        },
+        args: [js]
+    });
+    
+    console.log('[Background] JavaScript 적용 완료');
+}
+
+/**
+ * 탭에서 프리뷰 제거
+ */
+async function removePreviewFromTab(tabId: number) {
+    console.log(`[Background] 탭 ${tabId}에서 프리뷰 제거 시작`);
+    
+    try {
+        // Chrome의 insertCSS로 삽입한 CSS를 제거하는 유일한 방법: removeCSS 사용
+        const preview = appliedPreviews.get(tabId);
+        if (preview && preview.cssCode.trim()) {
+            console.log('[Background] 이전 CSS 제거 중:', preview.cssCode.substring(0, 50) + '...');
+            await chrome.scripting.removeCSS({
+                target: { tabId },
+                css: addCSSScoping(preview.cssCode)
+            });
+            console.log('[Background] 이전 CSS 제거 완료');
+        }
+        
+        // 추가 안전장치: 모든 Site Topping CSS 제거
+        await chrome.scripting.executeScript({
+            target: { tabId },
+            func: () => {
+                // Site Topping으로 삽입된 모든 스타일 제거
+                const styles = document.querySelectorAll('style');
+                styles.forEach(style => {
+                    if (style.textContent && style.textContent.includes(':not(#site-topping-root')) {
+                        style.remove();
+                        console.log('[WebPage] Site Topping 스타일 제거:', style);
+                    }
+                });
+            }
+        });
+        
+    } catch (cssError) {
+        console.warn('[Background] CSS 제거 실패, 대안 방법 시도:', cssError);
+        
+        // 대안: 스타일 시트를 직접 제거
+        await chrome.scripting.executeScript({
+            target: { tabId },
+            func: () => {
+                // Chrome extension으로 삽입된 스타일시트 찾기 및 제거
+                Array.from(document.styleSheets).forEach(sheet => {
+                    try {
+                        // Chrome extension에서 삽입한 스타일시트는 href가 없거나 특정 패턴을 가짐
+                        if (!sheet.href || sheet.href.startsWith('chrome-extension://')) {
+                            const rules = Array.from(sheet.cssRules || []);
+                            const hasSiteToppingRules = rules.some(rule => 
+                                rule.cssText.includes(':not(#site-topping-root')
+                            );
+                            
+                            if (hasSiteToppingRules && sheet.ownerNode) {
+                                (sheet.ownerNode as HTMLElement).remove();
+                                console.log('[WebPage] Site Topping 스타일시트 제거됨');
+                            }
+                        }
+                    } catch (e) {
+                        // 브라우저 보안으로 인해 접근 불가한 스타일시트는 무시
+                    }
+                });
+            }
+        });
+    }
+    
+    // JavaScript 효과 정리 및 프리뷰 요소 제거
+    await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+            // ✅ 중복 방지: Site Topping 관련 모든 요소와 변경사항 정리
+            
+            // 1. 프리뷰로 추가된 모든 요소 제거
+            const previewElements = document.querySelectorAll('[data-site-topping-preview], [data-site-topping="preview"], [data-site-topping="preview-css"], [data-site-topping="preview-js"]');
+            previewElements.forEach(el => {
+                try {
+                    el.remove();
+                    console.log('[WebPage] 프리뷰 요소 제거:', el.tagName);
+                } catch {}
+            });
+            
+            // 2. Site Topping 스크립트 태그 제거
+            const scripts = document.querySelectorAll('script');
+            scripts.forEach(script => {
+                if (script.textContent && (
+                    script.textContent.includes('Site Topping') ||
+                    script.id?.startsWith('site-topping') ||
+                    script.hasAttribute('data-site-topping')
+                )) {
+                    script.remove();
+                    console.log('[WebPage] Site Topping 스크립트 제거');
+                }
+            });
+            
+            // 3. 글로벌 변수 정리 (있다면)
+            try {
+                if (typeof (window as any).__siteTopping !== 'undefined') {
+                    delete (window as any).__siteTopping;
+                    console.log('[WebPage] Site Topping 글로벌 변수 정리');
+                }
+            } catch {}
+            
+            console.log('[WebPage] 완전한 프리뷰 정리 완료');
+        }
+    });
+    
+    console.log('[Background] 프리뷰 제거 완료');
+}
+
+/**
+ * CSS 스코핑 적용 - 익스텐션 UI 보호
+ */
+function addCSSScoping(css: string): string {
+    try {
+        const rules = css.split('}').filter(rule => rule.trim());
+        
+        const scopedRules = rules.map(rule => {
+            const trimmed = rule.trim();
+            if (!trimmed) return '';
+            
+            const braceIndex = trimmed.indexOf('{');
+            if (braceIndex === -1) return trimmed + '}';
+            
+            const selectors = trimmed.substring(0, braceIndex).trim();
+            const properties = trimmed.substring(braceIndex + 1).trim();
+            
+            // @규칙이나 주석은 스코핑 제외
+            if (selectors.startsWith('@') || selectors.includes('/*')) {
+                return `${selectors} { ${properties} }`;
+            }
+            
+            // 익스텐션 제외 스코핑 적용
+            const scopedSelectors = selectors
+                .split(',')
+                .map(sel => {
+                    const trimmed = sel.trim();
+                    if (trimmed === '*' || trimmed === 'html' || trimmed === 'body') {
+                        return `${trimmed}:not(#site-topping-root):not(#site-topping-root *)`;
+                    }
+                    return `${trimmed}:not(#site-topping-root *)`;
+                })
+                .join(', ');
+            
+            return `${scopedSelectors} { ${properties} }`;
+        });
+        
+        return scopedRules.join('\n');
+        
+    } catch (error) {
+        console.warn('[Background] CSS 스코핑 실패, 원본 사용:', error);
+        return css;
     }
 }

@@ -6,7 +6,7 @@ import { BotMessageSquare, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigR
 import { useDebounce } from '../hooks/useDebounce';
 import { SiteIntegrationService } from '../services/siteIntegration';
 import { useSidePanelMessage } from '../hooks/useSidePanelMessage';
-import { createSidePanelCodePreviewService } from '../services/sidePanelCodePreview';
+// import { applyCodeToPage, removeCodeFromPage } from '../services/codePreview';
 
 interface PanelHeaderProps {
   // 사이드패널에서는 props 불필요
@@ -20,9 +20,8 @@ export default function PanelHeader({}: PanelHeaderProps) {
   const [deployFailed, setDeployFailed] = useState(false);
   const siteService = SiteIntegrationService.getInstance();
   
-  // 사이드패널용 메시지 패싱
+  // 사이드패널용 메시지 패싱  
   const { sendMessageToActiveTab } = useSidePanelMessage();
-  const codePreviewService = createSidePanelCodePreviewService(sendMessageToActiveTab);
   
   // 요소 인스펙터 상태
   const [isInspectorActive, setIsInspectorActive] = useState(false);
@@ -103,8 +102,20 @@ export default function PanelHeader({}: PanelHeaderProps) {
     
     try {
       if (state.isPreviewMode) {
-        // 프리뷰 끄기: 코드 제거만 실행
-        await codePreviewService.removeCode();
+        // 프리뷰 끄기: Background Script를 통해 코드 제거
+        const response = await chrome.runtime.sendMessage({
+          type: 'REMOVE_CODE_PREVIEW'
+        });
+        if (!response?.success) {
+          console.error('프리뷰 제거 실패:', response?.error);
+        }
+        
+        // ✅ 완전한 정리를 위해 페이지 새로고침 (중복 적용 방지)
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id) {
+          console.log('[PanelHeader] 완전한 복원을 위해 페이지 새로고침');
+          await chrome.tabs.reload(tab.id);
+        }
       }
       // 프리뷰 켜기는 상태만 변경하고, 실제 코드 적용은 디바운스 Effect에서 처리
       actions.togglePreviewMode();
@@ -139,8 +150,31 @@ export default function PanelHeader({}: PanelHeaderProps) {
       return;
     }
     
-    console.log('[PanelHeader] Applying debounced code changes');
-    codePreviewService.applyCode(debouncedCSS, debouncedJS);
+    console.log('[PanelHeader] 코드 변경 - 페이지 새로고침 후 적용');
+    
+    // ✅ 확실한 방법: 페이지 새로고침 후 코드 적용
+    const applyAfterReload = async () => {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id) {
+          // 페이지 새로고침
+          await chrome.tabs.reload(tab.id);
+          
+          // 새로고침 완료 대기 후 코드 적용
+          setTimeout(async () => {
+            chrome.runtime.sendMessage({
+              type: 'APPLY_CODE_PREVIEW',
+              css: debouncedCSS,
+              js: debouncedJS
+            });
+          }, 1000); // 1초 후 적용
+        }
+      } catch (error) {
+        console.error('[PanelHeader] 새로고침 후 적용 실패:', error);
+      }
+    };
+    
+    applyAfterReload();
   }, [debouncedCSS, debouncedJS, state.isPreviewMode, isToggling]);
 
   // 배포 성공 아이콘을 2초 후 자동으로 숨김
