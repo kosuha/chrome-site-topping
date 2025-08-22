@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import styles from '../styles/SidePanel.module.css';
 import { TABS } from '../utils/constants';
 import { useAppContext } from '../contexts/AppContext';
@@ -6,7 +6,7 @@ import { BotMessageSquare, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigR
 import { useDebounce } from '../hooks/useDebounce';
 import { SiteIntegrationService } from '../services/siteIntegration';
 import { useSidePanelMessage } from '../hooks/useSidePanelMessage';
-// import { applyCodeToPage, removeCodeFromPage } from '../services/codePreview';
+import { applyCodeToPage, removeCodeFromPage } from '../services/codePreview';
 
 interface PanelHeaderProps {
   // 사이드패널에서는 props 불필요
@@ -33,9 +33,18 @@ export default function PanelHeader({}: PanelHeaderProps) {
   const [isNavigatingBack, setIsNavigatingBack] = useState(false);
   const [isNavigatingForward, setIsNavigatingForward] = useState(false);
   
-  // 코드 변경을 500ms 디바운스
-  const debouncedCSS = useDebounce(state.editorCode.css, 500);
-  const debouncedJS = useDebounce(state.editorCode.javascript, 2000);
+  // 코드 변경을 단일 신호로 디바운스하여 중복 새로고침 방지
+  const combinedCode = `${state.editorCode.css || ''}\n/*__SEP__*/\n${state.editorCode.javascript || ''}`;
+  const debouncedCombined = useDebounce(combinedCode, 600);
+
+  // 프리뷰 초기화 진행 여부
+  const isInitializingRef = useRef(false);
+  // 프리뷰 활성 상태 가드 (레이스 방지)
+  const isPreviewActiveRef = useRef(false);
+
+  useEffect(() => {
+    isPreviewActiveRef.current = state.isPreviewMode;
+  }, [state.isPreviewMode]);
 
   const switchTab = (tabName: 'code' | 'chat' | 'user') => {
     actions.setActiveTab(tabName);
@@ -102,22 +111,13 @@ export default function PanelHeader({}: PanelHeaderProps) {
     
     try {
       if (state.isPreviewMode) {
-        // 프리뷰 끄기: Background Script를 통해 코드 제거
-        const response = await chrome.runtime.sendMessage({
-          type: 'REMOVE_CODE_PREVIEW'
-        });
-        if (!response?.success) {
-          console.error('프리뷰 제거 실패:', response?.error);
-        }
-        
-        // ✅ 완전한 정리를 위해 페이지 새로고침 (중복 적용 방지)
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab?.id) {
-          console.log('[PanelHeader] 완전한 복원을 위해 페이지 새로고침');
-          await chrome.tabs.reload(tab.id);
+        // 프리뷰 끄기: 코드 제거 후 리로드
+        try {
+          await removeCodeFromPage();
+        } catch (e) {
+          console.error('프리뷰 제거 실패:', e);
         }
       }
-      // 프리뷰 켜기는 상태만 변경하고, 실제 코드 적용은 디바운스 Effect에서 처리
       actions.togglePreviewMode();
     } finally {
       setIsToggling(false);
@@ -143,39 +143,41 @@ export default function PanelHeader({}: PanelHeaderProps) {
     }
   };
 
-  // 프리뷰 모드일 때 디바운스된 코드 변경시 적용
+  // 프리뷰 진입 시 라이브 적용
   useEffect(() => {
-    // 토글 중이거나 프리뷰 모드가 아니면 적용하지 않음
-    if (!state.isPreviewMode || isToggling) {
-      return;
-    }
-    
-    console.log('[PanelHeader] 코드 변경 - 페이지 새로고침 후 적용');
-    
-    // ✅ 확실한 방법: 페이지 새로고침 후 코드 적용
-    const applyAfterReload = async () => {
+    if (!state.isPreviewMode) return;
+
+    const initPreview = async () => {
       try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab?.id) {
-          // 페이지 새로고침
-          await chrome.tabs.reload(tab.id);
-          
-          // 새로고침 완료 대기 후 코드 적용
-          setTimeout(async () => {
-            chrome.runtime.sendMessage({
-              type: 'APPLY_CODE_PREVIEW',
-              css: debouncedCSS,
-              js: debouncedJS
-            });
-          }, 1000); // 1초 후 적용
-        }
+        isInitializingRef.current = true;
+        if (!isPreviewActiveRef.current) return;
+        await applyCodeToPage(state.editorCode.css || '', state.editorCode.javascript || '');
       } catch (error) {
-        console.error('[PanelHeader] 새로고침 후 적용 실패:', error);
+        console.error('[PanelHeader] 프리뷰 초기 적용 실패:', error);
+      } finally {
+        isInitializingRef.current = false;
       }
     };
-    
-    applyAfterReload();
-  }, [debouncedCSS, debouncedJS, state.isPreviewMode, isToggling]);
+
+    initPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.isPreviewMode]);
+
+  // 프리뷰 중 코드 변경시: 라이브로 최신 코드 적용
+  useEffect(() => {
+    if (!state.isPreviewMode || isInitializingRef.current) return;
+
+    const run = async () => {
+      try {
+        if (!isPreviewActiveRef.current) return;
+        await applyCodeToPage(state.editorCode.css || '', state.editorCode.javascript || '');
+      } catch (error) {
+        console.error('[PanelHeader] 코드 변경 적용 실패:', error);
+      }
+    };
+
+    run();
+  }, [debouncedCombined, state.isPreviewMode]);
 
   // 배포 성공 아이콘을 2초 후 자동으로 숨김
   useEffect(() => {
