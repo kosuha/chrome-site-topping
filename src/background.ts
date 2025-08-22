@@ -18,8 +18,168 @@ async function reapplyLivePreview(tabId: number) {
   const preview = appliedPreviews.get(tabId);
   if (!preview) return;
   console.log('[Background] 라이브 프리뷰 재적용:', tabId);
-  if (preview.cssCode) await applyCSSToTab(tabId, preview.cssCode);
-  if (preview.jsCode) await applyJSToTab(tabId, preview.jsCode);
+  
+  // 스냅샷 기반 재적용 (동적 기능 보존)
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: (cssCode: string, jsCode: string) => {
+        try {
+          const snapshot = (window as any).__siteTopping_originalSnapshot;
+          
+          if (!snapshot) {
+            console.warn('[WebPage] 스냅샷이 없어 재적용 불가');
+            return { success: false };
+          }
+          
+          console.log('[WebPage] 라이브 프리뷰 재적용 시작 (스냅샷 기반)');
+          
+          // 1. 동적 상태 백업
+          let preservedState = null;
+          if ((window as any).__siteTopping_preserveEvents) {
+            preservedState = (window as any).__siteTopping_preserveEvents();
+          }
+          
+          // 2. 사용자 클린업 실행
+          if (Array.isArray((window as any).__siteTopping_cleanup)) {
+            (window as any).__siteTopping_cleanup.forEach((fn: any) => {
+              try { if (typeof fn === 'function') fn(); } catch (e) {}
+            });
+            (window as any).__siteTopping_cleanup = [];
+          }
+          
+          // 3. 스크롤 위치 백업
+          const currentScrollX = window.scrollX;
+          const currentScrollY = window.scrollY;
+          
+          // 4. DOM 복원 (innerHTML 전체 교체)
+          const parser = new DOMParser();
+          const originalDoc = parser.parseFromString(snapshot.documentHTML, 'text/html');
+          
+          // head 영역 복원 (Site Topping 요소 제외)
+          if (originalDoc.head && snapshot.headHTML) {
+            // 기존 head의 Site Topping 요소들만 백업 (나머지는 건드리지 않음)
+            const siteToppingElements = Array.from(document.head.children).filter(el => 
+              el.hasAttribute('data-site-topping') || 
+              el.id === 'site-topping-style' ||
+              (el.textContent && el.textContent.includes('site-topping'))
+            );
+            
+            // head 복원은 하지 않고 Site Topping 요소만 정리
+            siteToppingElements.forEach(el => {
+              try { el.remove(); } catch (e) {}
+            });
+          }
+          
+          // body 복원
+          if (originalDoc.body && snapshot.bodyHTML) {
+            document.body.innerHTML = originalDoc.body.innerHTML;
+            
+            // body 속성들도 복원
+            Array.from(document.body.attributes).forEach(attr => {
+              if (!attr.name.startsWith('data-site-topping')) {
+                document.body.removeAttribute(attr.name);
+              }
+            });
+            Array.from(originalDoc.body.attributes).forEach(attr => {
+              document.body.setAttribute(attr.name, attr.value);
+            });
+          }
+          
+          // 5. 스크롤 위치 복원
+          window.scrollTo(currentScrollX, currentScrollY);
+          
+          // 6. CSS 재적용
+          if (cssCode && cssCode.trim()) {
+            let styleElement = document.getElementById('site-topping-style') as HTMLStyleElement;
+            if (!styleElement) {
+              styleElement = document.createElement('style');
+              styleElement.id = 'site-topping-style';
+              styleElement.setAttribute('data-site-topping', 'style');
+              document.head.appendChild(styleElement);
+            }
+            
+            // CSS 스코핑 적용
+            const scopedCSS = cssCode.split('}').filter(rule => rule.trim()).map(rule => {
+              const trimmed = rule.trim();
+              if (!trimmed) return '';
+              
+              const braceIndex = trimmed.indexOf('{');
+              if (braceIndex === -1) return trimmed + '}';
+              
+              const selectors = trimmed.substring(0, braceIndex).trim();
+              const properties = trimmed.substring(braceIndex + 1).trim();
+              
+              if (selectors.startsWith('@') || selectors.includes('/*')) {
+                return `${selectors} { ${properties} }`;
+              }
+              
+              const scopedSelectors = selectors.split(',').map(sel => {
+                const trimmed = sel.trim();
+                if (trimmed === '*' || trimmed === 'html' || trimmed === 'body') {
+                  return `${trimmed}:not(#site-topping-root):not(#site-topping-root *)`;
+                }
+                return `${trimmed}:not(#site-topping-root *)`;
+              }).join(', ');
+              
+              return `${scopedSelectors} { ${properties} }`;
+            }).join('\n');
+            
+            styleElement.textContent = scopedCSS;
+          }
+          
+          // 7. JavaScript 재적용
+          if (jsCode && jsCode.trim()) {
+            const wrapper = `(() => {
+              try {
+                // 사용자 코드 실행 전에 유틸리티 함수 제공
+                window.__siteTopping_cleanup = window.__siteTopping_cleanup || [];
+                
+                // 클린업 등록 헬퍼
+                window.__siteTopping_registerCleanup = function(fn) {
+                  if (typeof fn === 'function') {
+                    window.__siteTopping_cleanup.push(fn);
+                  }
+                };
+                
+                console.log('[WebPage] 라이브 JS 재적용');
+                ${jsCode}
+              } catch (e) {
+                console.error('[Site Topping] 라이브 재적용 JS 오류:', e);
+              }
+            })();`;
+            
+            const script = document.createElement('script');
+            script.setAttribute('data-site-topping', 'script');
+            script.textContent = wrapper;
+            document.documentElement.appendChild(script);
+            
+            setTimeout(() => { try { script.remove(); } catch (e) {} }, 0);
+          }
+          
+          // 8. 동적 상태 복원
+          if (preservedState && (window as any).__siteTopping_restoreEvents) {
+            (window as any).__siteTopping_restoreEvents(preservedState);
+          }
+          
+          console.log('[WebPage] 라이브 프리뷰 재적용 완료');
+          return { success: true };
+          
+        } catch (error) {
+          console.error('[WebPage] 라이브 재적용 실패:', error);
+          
+          // 실패 시 페이지 새로고침으로 복구
+          console.log('[WebPage] 라이브 재적용 실패, 페이지 새로고침으로 복구');
+          window.location.reload();
+          return { success: false };
+        }
+      },
+      args: [preview.cssCode || '', preview.jsCode || '']
+    });
+  } catch (error) {
+    console.error('[Background] 라이브 재적용 실패:', error);
+  }
 }
 
 // 네비게이션 완료 시(last snapshot) 재적용 (라이브 모드)
@@ -110,13 +270,31 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log('[Background] 메시지 수신:', message.type);
     
-    // 코드 프리뷰 적용 요청
+    // 스냅샷 생성 및 코드 적용 요청
+    if (message.type === 'CREATE_SNAPSHOT_AND_APPLY') {
+        handleCreateSnapshotAndApply(message, sender, sendResponse);
+        return true;
+    }
+    
+    // 스냅샷에서 복원 요청
+    if (message.type === 'RESTORE_FROM_SNAPSHOT') {
+        handleRestoreFromSnapshot(message, sender, sendResponse);
+        return true;
+    }
+    
+    // 실시간 코드 업데이트 요청
+    if (message.type === 'UPDATE_PREVIEW_CODE') {
+        handleUpdatePreviewCode(message, sender, sendResponse);
+        return true;
+    }
+    
+    // 코드 프리뷰 적용 요청 (레거시 호환용)
     if (message.type === 'APPLY_CODE_PREVIEW') {
         handleApplyCodePreview(message, sender, sendResponse);
         return true;
     }
     
-    // 코드 프리뷰 제거 요청
+    // 코드 프리뷰 제거 요청 (레거시 호환용)
     if (message.type === 'REMOVE_CODE_PREVIEW') {
         handleRemoveCodePreview(message, sender, sendResponse);
         return true;
@@ -408,12 +586,12 @@ async function initOAuth(provider: string) {
     }
 }
 
-// ====== 코드 프리뷰 함수들 ======
+// ====== 스냅샷 기반 프리뷰 함수들 ======
 
 /**
- * 코드 프리뷰 적용 핸들러
+ * 스냅샷 생성 및 코드 적용 핸들러 - 스냅샷 기반 + 동적 기능 보존
  */
-async function handleApplyCodePreview(message: any, sender: chrome.runtime.MessageSender, sendResponse: (response: any) => void) {
+async function handleCreateSnapshotAndApply(message: any, sender: chrome.runtime.MessageSender, sendResponse: (response: any) => void) {
     try {
         const { css, js, tabId } = message;
         
@@ -421,7 +599,6 @@ async function handleApplyCodePreview(message: any, sender: chrome.runtime.Messa
         let targetTabId = tabId || sender.tab?.id;
         
         if (!targetTabId) {
-            // Side Panel에서 호출하는 경우, 현재 활성 탭을 찾음
             const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
             if (!activeTab?.id) {
                 throw new Error('활성 탭을 찾을 수 없습니다');
@@ -429,42 +606,332 @@ async function handleApplyCodePreview(message: any, sender: chrome.runtime.Messa
             targetTabId = activeTab.id;
         }
         
-        console.log(`[Background] 코드 프리뷰 적용 - 탭 ${targetTabId}, CSS: ${css?.length || 0}자, JS: ${js?.length || 0}자`);
+        console.log(`[Background] 스냅샷 + 동적 기능 보존 프리뷰 시작 - 탭 ${targetTabId}`);
         
-        // ✅ 라이브 적용: CSS는 단일 스타일 태그 교체, JS는 기존 클린업 후 재실행
-        if (css && css.trim()) {
-            await applyCSSToTab(targetTabId, css);
-        } else {
-            // CSS가 빈 경우 스타일 비우기
-            await clearCSSTagInTab(targetTabId);
-        }
-        
-        if (js && js.trim()) {
-            await applyJSToTab(targetTabId, js);
-        } else {
-            await runJSCleanupInTab(targetTabId);
-        }
-        
-        // 적용된 코드 추적
+        // 적용된 코드 추적에 저장
         appliedPreviews.set(targetTabId, {
             tabId: targetTabId,
             cssCode: css || '',
             jsCode: js || ''
         });
         
-        console.log('[Background] 코드 프리뷰 적용 완료');
+        // 스냅샷 생성 및 코드 적용
+        const [result] = await chrome.scripting.executeScript({
+            target: { tabId: targetTabId },
+            world: 'MAIN',
+            func: (cssCode: string, jsCode: string) => {
+                try {
+                    // DOM 스냅샷 생성 (한 번만, 없을 때만)
+                    if (!(window as any).__siteTopping_originalSnapshot) {
+                        console.log('[WebPage] 원본 DOM 스냅샷 생성');
+                        
+                        // 완전한 DOM 스냅샷 저장
+                        (window as any).__siteTopping_originalSnapshot = {
+                            documentHTML: document.documentElement.outerHTML,
+                            bodyHTML: document.body.outerHTML,
+                            headHTML: document.head.outerHTML,
+                            scrollPosition: { x: window.scrollX, y: window.scrollY },
+                            url: window.location.href,
+                            timestamp: Date.now()
+                        };
+                        
+                        // 동적 상태 보존을 위한 이벤트 백업 시스템
+                        (window as any).__siteTopping_preserveEvents = function() {
+                            console.log('[WebPage] 동적 상태 보존 시작');
+                            
+                            // 1. 전역 이벤트 리스너 백업
+                            const eventBackup = {
+                                windowEvents: [],
+                                documentEvents: [],
+                                bodyEvents: []
+                            };
+                            
+                            // 2. jQuery 상태 백업 (있는 경우)
+                            let jqueryBackup = null;
+                            if ((window as any).jQuery) {
+                                jqueryBackup = {
+                                    version: (window as any).jQuery.fn.jquery,
+                                    ready: (window as any).jQuery.isReady
+                                };
+                            }
+                            
+                            // 3. 주요 프레임워크 상태 백업
+                            const frameworkBackup = {};
+                            ['React', 'Vue', 'Angular', 'Svelte'].forEach(framework => {
+                                if ((window as any)[framework]) {
+                                    (frameworkBackup as any)[framework] = {
+                                        version: (window as any)[framework].version || 'unknown',
+                                        exists: true
+                                    };
+                                }
+                            });
+                            
+                            // 4. CSS 애니메이션/트랜지션 상태 백업
+                            const animationElements: any[] = [];
+                            document.querySelectorAll('*').forEach(element => {
+                                const computedStyle = window.getComputedStyle(element);
+                                if (computedStyle.animationName !== 'none' || 
+                                    computedStyle.transitionProperty !== 'none' ||
+                                    element.classList.contains('animated') ||
+                                    element.hasAttribute('data-aos') ||
+                                    element.classList.toString().includes('animate-')) {
+                                    
+                                    animationElements.push({
+                                        element: element,
+                                        selector: element.tagName + (element.id ? '#' + element.id : '') + 
+                                                 (element.className ? '.' + element.className.split(' ').join('.') : ''),
+                                        animations: {
+                                            animationName: computedStyle.animationName,
+                                            animationDuration: computedStyle.animationDuration,
+                                            animationTimingFunction: computedStyle.animationTimingFunction,
+                                            animationDelay: computedStyle.animationDelay,
+                                            animationIterationCount: computedStyle.animationIterationCount,
+                                            animationDirection: computedStyle.animationDirection,
+                                            animationFillMode: computedStyle.animationFillMode,
+                                            animationPlayState: computedStyle.animationPlayState,
+                                            transitionProperty: computedStyle.transitionProperty,
+                                            transitionDuration: computedStyle.transitionDuration,
+                                            transitionTimingFunction: computedStyle.transitionTimingFunction,
+                                            transitionDelay: computedStyle.transitionDelay
+                                        }
+                                    });
+                                }
+                            });
+                            
+                            return {
+                                events: eventBackup,
+                                jquery: jqueryBackup,
+                                frameworks: frameworkBackup,
+                                animations: animationElements,
+                                timestamp: Date.now()
+                            };
+                        };
+                        
+                        // 동적 상태 복원 함수
+                        (window as any).__siteTopping_restoreEvents = function(preservedState: any) {
+                            if (!preservedState) return;
+                            
+                            console.log('[WebPage] 동적 상태 복원 시작');
+                            
+                            // 즉시 실행할 복원 작업들
+                            try {
+                                // 1. jQuery 이벤트 재트리거 (즉시)
+                                if (preservedState.jquery && (window as any).jQuery) {
+                                    console.log('[WebPage] jQuery 이벤트 즉시 재트리거');
+                                    (window as any).jQuery(document).trigger('DOMContentLoaded');
+                                    if ((window as any).jQuery.isReady) {
+                                        (window as any).jQuery(document).ready();
+                                    }
+                                }
+                                
+                                // 2. 프레임워크별 즉시 초기화
+                                Object.keys(preservedState.frameworks).forEach(framework => {
+                                    const fw = (window as any)[framework];
+                                    if (fw) {
+                                        if (framework === 'Vue' && fw.nextTick) {
+                                            fw.nextTick(() => {
+                                                console.log('[WebPage] Vue 즉시 재마운트');
+                                            });
+                                        }
+                                    }
+                                });
+                                
+                                // 3. 애니메이션 라이브러리 즉시 재초기화
+                                if ((window as any).AOS) {
+                                    try {
+                                        (window as any).AOS.refreshHard();
+                                        console.log('[WebPage] AOS 즉시 재초기화');
+                                    } catch (e) {
+                                        console.warn('[WebPage] AOS 즉시 재초기화 실패:', e);
+                                    }
+                                }
+                                
+                                if ((window as any).gsap) {
+                                    try {
+                                        (window as any).gsap.globalTimeline.clear();
+                                        (window as any).gsap.set('*', { clearProps: 'all' });
+                                        console.log('[WebPage] GSAP 즉시 재초기화');
+                                    } catch (e) {
+                                        console.warn('[WebPage] GSAP 즉시 재초기화 실패:', e);
+                                    }
+                                }
+                            } catch (error) {
+                                console.error('[WebPage] 즉시 복원 중 오류:', error);
+                            }
+                            
+                            // 100ms 후에 추가 이벤트 복원 (DOM 안정화 대기)
+                            setTimeout(() => {
+                                try {
+                                    // 4. 일반 DOM 이벤트 재트리거
+                                    const events = ['DOMContentLoaded', 'load', 'resize', 'scroll'];
+                                    events.forEach(eventType => {
+                                        try {
+                                            const event = new Event(eventType, { bubbles: true, cancelable: false });
+                                            if (eventType === 'DOMContentLoaded' || eventType === 'load') {
+                                                document.dispatchEvent(event);
+                                            } else {
+                                                window.dispatchEvent(event);
+                                            }
+                                        } catch (e) {
+                                            console.warn('[WebPage] 이벤트 재트리거 실패:', eventType, e);
+                                        }
+                                    });
+                                    
+                                    // 5. 일반적인 초기화 함수들 재실행
+                                    const initFunctions = [
+                                        'init', 'initialize', 'setup', 'start', 'bootstrap', 'run',
+                                        'onReady', 'onLoad', 'ready', 'loaded', 'app', 'main'
+                                    ];
+                                    
+                                    initFunctions.forEach(funcName => {
+                                        if (typeof (window as any)[funcName] === 'function') {
+                                            try {
+                                                (window as any)[funcName]();
+                                                console.log('[WebPage] 초기화 함수 재실행:', funcName);
+                                            } catch (e) {
+                                                console.warn('[WebPage] 초기화 함수 실행 실패:', funcName, e);
+                                            }
+                                        }
+                                    });
+                                    
+                                    console.log('[WebPage] 지연 동적 상태 복원 완료');
+                                    
+                                } catch (error) {
+                                    console.error('[WebPage] 지연 복원 중 오류:', error);
+                                }
+                            }, 100);
+                            
+                            // 500ms 후에 최종 복원 작업 (프레임워크 안정화 대기)
+                            setTimeout(() => {
+                                try {
+                                    // 6. jQuery 최종 복원
+                                    if (preservedState.jquery && (window as any).jQuery) {
+                                        (window as any).jQuery(window).trigger('load');
+                                        (window as any).jQuery(window).trigger('resize');
+                                    }
+                                    
+                                    // 7. 애니메이션 라이브러리 최종 재스캔
+                                    if ((window as any).AOS) {
+                                        try {
+                                            (window as any).AOS.refresh();
+                                        } catch (e) {}
+                                    }
+                                    
+                                    // 8. 스크롤 기반 애니메이션 트리거
+                                    window.dispatchEvent(new Event('scroll'));
+                                    
+                                    console.log('[WebPage] 최종 동적 상태 복원 완료');
+                                    
+                                } catch (error) {
+                                    console.error('[WebPage] 최종 복원 중 오류:', error);
+                                }
+                            }, 500);
+                        };
+                        
+                        console.log('[WebPage] 스냅샷 및 보존 시스템 초기화 완료');
+                    }
+                    
+                    // CSS 적용
+                    if (cssCode && cssCode.trim()) {
+                        let styleElement = document.getElementById('site-topping-style') as HTMLStyleElement;
+                        if (!styleElement) {
+                            styleElement = document.createElement('style');
+                            styleElement.id = 'site-topping-style';
+                            styleElement.setAttribute('data-site-topping', 'style');
+                            document.head.appendChild(styleElement);
+                        }
+                        
+                        // CSS 스코핑 적용
+                        const scopedCSS = cssCode.split('}').filter(rule => rule.trim()).map(rule => {
+                            const trimmed = rule.trim();
+                            if (!trimmed) return '';
+                            
+                            const braceIndex = trimmed.indexOf('{');
+                            if (braceIndex === -1) return trimmed + '}';
+                            
+                            const selectors = trimmed.substring(0, braceIndex).trim();
+                            const properties = trimmed.substring(braceIndex + 1).trim();
+                            
+                            if (selectors.startsWith('@') || selectors.includes('/*')) {
+                                return `${selectors} { ${properties} }`;
+                            }
+                            
+                            const scopedSelectors = selectors.split(',').map(sel => {
+                                const trimmed = sel.trim();
+                                if (trimmed === '*' || trimmed === 'html' || trimmed === 'body') {
+                                    return `${trimmed}:not(#site-topping-root):not(#site-topping-root *)`;
+                                }
+                                return `${trimmed}:not(#site-topping-root *)`;
+                            }).join(', ');
+                            
+                            return `${scopedSelectors} { ${properties} }`;
+                        }).join('\n');
+                        
+                        styleElement.textContent = scopedCSS;
+                    }
+                    
+                    // JavaScript 적용
+                    if (jsCode && jsCode.trim()) {
+                        // 기존 Site Topping 스크립트 정리
+                        document.querySelectorAll('[data-site-topping="script"]').forEach(el => {
+                            try { el.remove(); } catch (e) {}
+                        });
+                        
+                        // 새 스크립트 실행
+                        const wrapper = `(() => {
+                            try {
+                                // 사용자 코드 실행 전에 유틸리티 함수 제공
+                                window.__siteTopping_cleanup = window.__siteTopping_cleanup || [];
+                                
+                                // 클린업 등록 헬퍼
+                                window.__siteTopping_registerCleanup = function(fn) {
+                                    if (typeof fn === 'function') {
+                                        window.__siteTopping_cleanup.push(fn);
+                                    }
+                                };
+                                
+                                ${jsCode}
+                            } catch (e) {
+                                console.error('[Site Topping] 사용자 코드 실행 오류:', e);
+                            }
+                        })();`;
+                        
+                        const script = document.createElement('script');
+                        script.setAttribute('data-site-topping', 'script');
+                        script.textContent = wrapper;
+                        document.documentElement.appendChild(script);
+                        
+                        setTimeout(() => { try { script.remove(); } catch (e) {} }, 0);
+                    }
+                    
+                    console.log('[WebPage] 스냅샷 기반 프리뷰 적용 완료');
+                    return { success: true };
+                    
+                } catch (error) {
+                    console.error('[WebPage] 스냅샷 프리뷰 실행 실패:', error);
+                    return { success: false, error: error instanceof Error ? error.message : String(error) };
+                }
+            },
+            args: [css || '', js || '']
+        });
+        
+        if (!result?.result?.success) {
+            throw new Error(result?.result?.error || '스냅샷 프리뷰 적용 실패');
+        }
+        
+        console.log('[Background] 스냅샷 기반 프리뷰 적용 완료');
         sendResponse({ success: true });
         
     } catch (error) {
-        console.error('[Background] 코드 프리뷰 적용 실패:', error);
+        console.error('[Background] 스냅샷 프리뷰 적용 실패:', error);
         sendResponse({ success: false, error: error instanceof Error ? error.message : '알 수 없는 오류' });
     }
 }
 
 /**
- * 코드 프리뷰 제거 핸들러
+ * 스냅샷에서 복원 핸들러 - innerHTML 전체 교체 + 동적 기능 보존
  */
-async function handleRemoveCodePreview(message: any, sender: chrome.runtime.MessageSender, sendResponse: (response: any) => void) {
+async function handleRestoreFromSnapshot(message: any, sender: chrome.runtime.MessageSender, sendResponse: (response: any) => void) {
     try {
         const { tabId } = message;
         
@@ -472,7 +939,6 @@ async function handleRemoveCodePreview(message: any, sender: chrome.runtime.Mess
         let targetTabId = tabId || sender.tab?.id;
         
         if (!targetTabId) {
-            // Side Panel에서 호출하는 경우, 현재 활성 탭을 찾음
             const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
             if (!activeTab?.id) {
                 throw new Error('활성 탭을 찾을 수 없습니다');
@@ -480,435 +946,414 @@ async function handleRemoveCodePreview(message: any, sender: chrome.runtime.Mess
             targetTabId = activeTab.id;
         }
         
-        console.log(`[Background] 코드 프리뷰 제거 - 탭 ${targetTabId}`);
+        console.log(`[Background] 스냅샷 기반 완전 복원 - 탭 ${targetTabId}`);
         
-        await removePreviewFromTab(targetTabId);
+        // 적용된 코드 추적에서 제거
         appliedPreviews.delete(targetTabId);
         
-        console.log('[Background] 코드 프리뷰 제거 완료');
+        // 스냅샷 기반 완전 복원
+        const [result] = await chrome.scripting.executeScript({
+            target: { tabId: targetTabId },
+            world: 'MAIN',
+            func: () => {
+                try {
+                    const snapshot = (window as any).__siteTopping_originalSnapshot;
+                    
+                    if (!snapshot) {
+                        console.warn('[WebPage] 복원할 스냅샷이 없습니다. 기본 정리만 수행합니다.');
+                        
+                        // 기본 Site Topping 요소들만 제거
+                        const selectors = [
+                            '#site-topping-style',
+                            '[data-site-topping]',
+                            '[data-site-topping-added]',
+                            '.site-topping-element'
+                        ];
+                        
+                        selectors.forEach(selector => {
+                            document.querySelectorAll(selector).forEach(el => {
+                                try { el.remove(); } catch (e) {}
+                            });
+                        });
+                        
+                        // 사용자 클린업 함수들 실행
+                        if (Array.isArray((window as any).__siteTopping_cleanup)) {
+                            (window as any).__siteTopping_cleanup.forEach((fn: any) => {
+                                try { if (typeof fn === 'function') fn(); } catch (e) {}
+                            });
+                            (window as any).__siteTopping_cleanup = [];
+                        }
+                        
+                        return { success: true, restored: false };
+                    }
+                    
+                    console.log('[WebPage] 스냅샷 기반 완전 복원 시작');
+                    
+                    // 1. 동적 상태 백업 (복원 전에)
+                    let preservedState = null;
+                    if ((window as any).__siteTopping_preserveEvents) {
+                        preservedState = (window as any).__siteTopping_preserveEvents();
+                        console.log('[WebPage] 동적 상태 백업 완료');
+                    }
+                    
+                    // 2. 사용자 클린업 함수들 실행
+                    if (Array.isArray((window as any).__siteTopping_cleanup)) {
+                        console.log('[WebPage] 사용자 클린업 함수들 실행');
+                        (window as any).__siteTopping_cleanup.forEach((fn: any) => {
+                            try { if (typeof fn === 'function') fn(); } catch (e) {}
+                        });
+                        (window as any).__siteTopping_cleanup = [];
+                    }
+                    
+                    // 3. 스크롤 위치 백업 (복원 후 재설정용)
+                    const currentScrollX = window.scrollX;
+                    const currentScrollY = window.scrollY;
+                    
+                    // 4. DOM 완전 복원 (innerHTML 전체 교체)
+                    console.log('[WebPage] 스냅샷 기반 완전 복원 시작 - innerHTML 전체 교체');
+                    
+                    // 전체 문서 복원
+                    const parser = new DOMParser();
+                    const originalDoc = parser.parseFromString(snapshot.documentHTML, 'text/html');
+                    
+                    // head 영역 복원 (Site Topping 요소 제외)
+                    if (originalDoc.head && snapshot.headHTML) {
+                        console.log('[WebPage] head 영역 복원 시작');
+                        
+                        // 기존 head의 Site Topping 요소들만 백업 (나머지는 건드리지 않음)
+                        const siteToppingElements = Array.from(document.head.children).filter(el => 
+                            el.hasAttribute('data-site-topping') || 
+                            el.id === 'site-topping-style' ||
+                            (el.textContent && el.textContent.includes('site-topping'))
+                        );
+                        
+                        // head 복원은 하지 않고 Site Topping 요소만 정리
+                        siteToppingElements.forEach(el => {
+                            try { el.remove(); } catch (e) {}
+                        });
+                        
+                        console.log('[WebPage] head 영역 Site Topping 요소만 정리 완료 (스크립트 보존)');
+                    }
+                    
+                    // body 완전 복원
+                    if (originalDoc.body && snapshot.bodyHTML) {
+                        console.log('[WebPage] body 영역 복원 시작');
+                        
+                        // body innerHTML 완전 교체
+                        document.body.innerHTML = originalDoc.body.innerHTML;
+                        
+                        // body 속성들도 복원
+                        Array.from(document.body.attributes).forEach(attr => {
+                            if (!attr.name.startsWith('data-site-topping')) {
+                                document.body.removeAttribute(attr.name);
+                            }
+                        });
+                        Array.from(originalDoc.body.attributes).forEach(attr => {
+                            document.body.setAttribute(attr.name, attr.value);
+                        });
+                        
+                        console.log('[WebPage] body innerHTML 완전 복원 완료');
+                    }
+                    
+                    // 5. 스크롤 위치 복원 (원본 또는 현재 위치)
+                    const targetScrollX = snapshot.scrollPosition?.x ?? currentScrollX;
+                    const targetScrollY = snapshot.scrollPosition?.y ?? currentScrollY;
+                    window.scrollTo(targetScrollX, targetScrollY);
+                    console.log('[WebPage] 스크롤 위치 복원:', { x: targetScrollX, y: targetScrollY });
+                    
+                    // 6. 동적 상태 복원 (setTimeout으로 DOM 안정화 대기)
+                    if (preservedState && (window as any).__siteTopping_restoreEvents) {
+                        (window as any).__siteTopping_restoreEvents(preservedState);
+                    }
+                    
+                    // 7. 스냅샷 관련 전역 변수 정리
+                    delete (window as any).__siteTopping_originalSnapshot;
+                    delete (window as any).__siteTopping_preserveEvents;
+                    delete (window as any).__siteTopping_restoreEvents;
+                    delete (window as any).__siteTopping_cleanup;
+                    
+                    console.log('[WebPage] 스냅샷 기반 완전 복원 완료');
+                    return { success: true, restored: true };
+                    
+                } catch (error) {
+                    console.error('[WebPage] 스냅샷 복원 실패:', error);
+                    
+                    // 복원 실패 시 페이지 새로고침으로 대체
+                    console.log('[WebPage] 복원 실패, 페이지 새로고침으로 대체');
+                    window.location.reload();
+                    return { success: false, error: error instanceof Error ? error.message : String(error) };
+                }
+            }
+        });
+        
+        if (!result?.result?.success && result?.result?.restored !== false) {
+            throw new Error(result?.result?.error || '스냅샷 복원 실패');
+        }
+        
+        console.log('[Background] 스냅샷 기반 완전 복원 완료');
         sendResponse({ success: true });
         
     } catch (error) {
-        console.error('[Background] 코드 프리뷰 제거 실패:', error);
+        console.error('[Background] 스냅샷 복원 실패:', error);
         sendResponse({ success: false, error: error instanceof Error ? error.message : '알 수 없는 오류' });
     }
 }
 
 /**
- * 탭에 CSS 적용
+ * 실시간 코드 업데이트 핸들러 - 스냅샷 기반 완전 복원 + 새 코드 적용
  */
-async function applyCSSToTab(tabId: number, css: string) {
-    const scopedCSS = addCSSScoping(css);
-    await chrome.scripting.executeScript({
-        target: { tabId },
-        world: 'MAIN',
-        func: (cssText: string) => {
-            try {
-                let style = document.getElementById('site-topping-style') as HTMLStyleElement | null;
-                if (!style) {
-                    style = document.createElement('style');
-                    style.id = 'site-topping-style';
-                    style.setAttribute('data-site-topping', 'style');
-                    document.head.appendChild(style);
-                }
-                style.textContent = cssText;
-                console.log('[WebPage] Site Topping 스타일 갱신');
-            } catch (e) {
-                console.error('[WebPage] 스타일 갱신 실패:', e);
+async function handleUpdatePreviewCode(message: any, sender: chrome.runtime.MessageSender, sendResponse: (response: any) => void) {
+    try {
+        const { css, js, tabId } = message;
+        
+        // 현재 활성 탭 ID 가져오기
+        let targetTabId = tabId || sender.tab?.id;
+        
+        if (!targetTabId) {
+            const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!activeTab?.id) {
+                throw new Error('활성 탭을 찾을 수 없습니다');
             }
-        },
-        args: [scopedCSS]
-    });
-    console.log('[Background] CSS 라이브 적용 완료');
-}
-
-async function clearCSSTagInTab(tabId: number) {
-    await chrome.scripting.executeScript({
-        target: { tabId },
-        world: 'MAIN',
-        func: () => {
-            const style = document.getElementById('site-topping-style');
-            if (style) {
-                style.textContent = '';
-                console.log('[WebPage] Site Topping 스타일 비움');
-            }
+            targetTabId = activeTab.id;
         }
-    });
-}
-
-async function runJSCleanupInTab(tabId: number) {
-    await chrome.scripting.executeScript({
-        target: { tabId },
-        world: 'MAIN',
-        func: () => {
-            try {
-                const g: any = window as any;
-
-                // DOM 변경 트래커가 있다면 되돌리고 초기화
+        
+        console.log(`[Background] 스냅샷 기반 실시간 업데이트 - 탭 ${targetTabId}`);
+        
+        // 적용된 코드 추적 업데이트
+        appliedPreviews.set(targetTabId, {
+            tabId: targetTabId,
+            cssCode: css || '',
+            jsCode: js || ''
+        });
+        
+        // 스냅샷 기반 실시간 업데이트: 완전 복원 후 새 코드 적용
+        const [result] = await chrome.scripting.executeScript({
+            target: { tabId: targetTabId },
+            world: 'MAIN',
+            func: (cssCode: string, jsCode: string) => {
                 try {
-                    g.__siteToppingChangeTracker?.stopAndRevert?.();
-                } catch (e) {
-                    console.warn('[WebPage] ChangeTracker revert failed:', e);
-                }
-                 // 배열/단일 함수 모두 지원
-                 if (Array.isArray(g.__siteToppingCleanups)) {
-                     g.__siteToppingCleanups.forEach((fn: any) => {
-                         try { typeof fn === 'function' && fn(); } catch {}
-                     });
-                     g.__siteToppingCleanups = [];
-                 }
-                 if (typeof g.__siteTopping_cleanup === 'function') {
-                     try { g.__siteTopping_cleanup(); } catch {}
-                     delete g.__siteTopping_cleanup;
-                 }
-                 // 프리뷰로 추가한 요소들 정리
-                 const previewElements = document.querySelectorAll('[data-site-topping-preview], [data-site-topping="preview"], [data-site-topping="preview-css"], [data-site-topping="preview-js"]');
-                 previewElements.forEach(el => { try { el.remove(); } catch {} });
-                 console.log('[WebPage] Site Topping JS 클린업 실행');
-            } catch (e) {
-                console.error('[WebPage] JS 클린업 실패:', e);
-            }
-        }
-    });
-}
-
-async function ensureChangeTrackerInTab(tabId: number) {
-    await chrome.scripting.executeScript({
-        target: { tabId },
-        world: 'MAIN',
-        func: () => {
-            const g = window;
-            if ((g as any).__siteToppingChangeTracker) return;
-            const tracker = (() => {
-                let observer = null as any;
-                let sessionId = 0;
-                const addedNodes: any[] = [];
-                const removedNodes: any[] = [];
-                const attrOld = new Map();
-                const textOld = new Map();
-                const addedSet = new WeakSet();
-                const removedSet = new WeakSet();
-
-                // 이벤트 리스너/타이머 추적
-                let patched = false;
-                let origAdd: any, origRemove: any, origSetTimeout: any, origClearTimeout: any, origSetInterval: any, origClearInterval: any;
-                const addedListeners: any[] = [];
-                const timeoutIds: any[] = [];
-                const intervalIds: any[] = [];
-                function patchGlobals() {
-                    if (patched) return; patched = true;
-                    try {
-                        origAdd = (EventTarget.prototype as any).addEventListener;
-                        origRemove = (EventTarget.prototype as any).removeEventListener;
-                        (EventTarget.prototype as any).addEventListener = function(this: any, type: any, listener: any, options: any) {
-                            try { addedListeners.push({ target: this as any, type, listener, options }); } catch {}
-                            return origAdd.call(this, type, listener, options);
-                        } as any;
-                        (EventTarget.prototype as any).removeEventListener = function(this: any, type: any, listener: any, options: any) {
-                            return origRemove.call(this, type, listener, options);
-                        } as any;
-                    } catch {}
-                    try {
-                        origSetTimeout = window.setTimeout;
-                        origClearTimeout = window.clearTimeout;
-                        window.setTimeout = function(handler: any, timeout?: number, ...args: any[]) {
-                            const id = origSetTimeout(handler as any, timeout as any, ...args);
-                            try { timeoutIds.push(id as any); } catch {}
-                            return id as any;
-                        } as any;
-                        window.clearTimeout = function(id: any) {
-                            try {
-                                const idx = timeoutIds.indexOf(id); if (idx >= 0) timeoutIds.splice(idx, 1);
-                            } catch {}
-                            return origClearTimeout(id as any);
-                        } as any;
-                    } catch {}
-                    try {
-                        origSetInterval = window.setInterval;
-                        origClearInterval = window.clearInterval;
-                        window.setInterval = function(handler: any, timeout?: number, ...args: any[]) {
-                            const id = origSetInterval(handler as any, timeout as any, ...args);
-                            try { intervalIds.push(id as any); } catch {}
-                            return id as any;
-                        } as any;
-                        window.clearInterval = function(id: any) {
-                            try {
-                                const idx = intervalIds.indexOf(id); if (idx >= 0) intervalIds.splice(idx, 1);
-                            } catch {}
-                            return origClearInterval(id as any);
-                        } as any;
-                    } catch {}
-                }
-                function unpatchGlobals() {
-                    if (!patched) return; patched = false;
-                    try { if (origAdd) (EventTarget.prototype as any).addEventListener = origAdd; } catch {}
-                    try { if (origRemove) (EventTarget.prototype as any).removeEventListener = origRemove; } catch {}
-                    try { if (origSetTimeout) window.setTimeout = origSetTimeout; } catch {}
-                    try { if (origClearTimeout) window.clearTimeout = origClearTimeout; } catch {}
-                    try { if (origSetInterval) window.setInterval = origSetInterval; } catch {}
-                    try { if (origClearInterval) window.clearInterval = origClearInterval; } catch {}
-                }
-
-                const markEl = (el: Element) => {
-                    try { el.setAttribute('data-site-topping-marked', '1'); } catch {}
-                };
-                function start() {
-                    sessionId += 1;
-                    if (observer) observer.disconnect();
-                    patchGlobals();
-                    observer = new MutationObserver((mutations) => {
-                        for (const m of mutations as any) {
-                            if (m.type === 'childList') {
-                                (m.addedNodes as any).forEach((n: any) => {
-                                    if (!addedSet.has(n)) {
-                                        addedSet.add(n);
-                                        addedNodes.push(n);
-                                        if (n instanceof Element) {
-                                            try { n.setAttribute('data-site-topping-preview', ''); } catch {}
-                                        }
-                                    }
-                                });
-                                (m.removedNodes as any).forEach((n: any) => {
-                                    if (!removedSet.has(n) && m.target) {
-                                        removedSet.add(n);
-                                        removedNodes.push({ node: n, parent: m.target, next: (m.nextSibling as any) || null });
-                                        if ((m.target as any) instanceof Element) markEl(m.target as any);
-                                    }
-                                });
-                            } else if (m.type === 'attributes') {
-                                const el = m.target as any;
-                                let map = attrOld.get(el);
-                                if (!map) { map = new Map(); attrOld.set(el, map); }
-                                if (!map.has(m.attributeName!)) {
-                                    map.set(m.attributeName!, el.getAttribute(m.attributeName!));
-                                    markEl(el);
-                                }
-                            } else if (m.type === 'characterData') {
-                                const node = m.target as any;
-                                if (!textOld.has(node)) {
-                                    textOld.set(node, node.data);
-                                    const p = node.parentElement; if (p) markEl(p);
-                                }
+                    const snapshot = (window as any).__siteTopping_originalSnapshot;
+                    
+                    if (!snapshot) {
+                        console.error('[WebPage] 스냅샷이 없습니다. 프리뷰를 다시 시작해주세요.');
+                        return { success: false, error: '스냅샷이 없습니다' };
+                    }
+                    
+                    console.log('[WebPage] 스냅샷 기반 실시간 업데이트 시작 (완전 복원 + 새 적용)');
+                    
+                    // Step 1: 동적 상태 백업 (복원 전에)
+                    let preservedState = null;
+                    if ((window as any).__siteTopping_preserveEvents) {
+                        preservedState = (window as any).__siteTopping_preserveEvents();
+                        console.log('[WebPage] 1단계: 동적 상태 백업 완료');
+                    }
+                    
+                    // Step 2: 사용자 클린업 함수들 실행
+                    if (Array.isArray((window as any).__siteTopping_cleanup)) {
+                        console.log('[WebPage] 2단계: 사용자 클린업 함수들 실행');
+                        (window as any).__siteTopping_cleanup.forEach((fn: any) => {
+                            try { if (typeof fn === 'function') fn(); } catch (e) {}
+                        });
+                        (window as any).__siteTopping_cleanup = [];
+                    }
+                    
+                    // Step 3: 스크롤 위치 백업
+                    const currentScrollX = window.scrollX;
+                    const currentScrollY = window.scrollY;
+                    
+                    // Step 4: DOM 완전 복원 (innerHTML 전체 교체)
+                    console.log('[WebPage] 3단계: DOM 완전 복원 (innerHTML 전체 교체)');
+                    
+                    const parser = new DOMParser();
+                    const originalDoc = parser.parseFromString(snapshot.documentHTML, 'text/html');
+                    
+                    // head 영역 복원 (Site Topping 요소 제외)
+                    if (originalDoc.head && snapshot.headHTML) {
+                        console.log('[WebPage] head 영역 실시간 복원');
+                        
+                        // 기존 head의 Site Topping 요소들만 백업 (나머지는 건드리지 않음)
+                        const siteToppingElements = Array.from(document.head.children).filter(el => 
+                            el.hasAttribute('data-site-topping') || 
+                            el.id === 'site-topping-style' ||
+                            (el.textContent && el.textContent.includes('site-topping'))
+                        );
+                        
+                        // head 복원은 하지 않고 Site Topping 요소만 정리
+                        siteToppingElements.forEach(el => {
+                            try { el.remove(); } catch (e) {}
+                        });
+                        
+                        console.log('[WebPage] head 영역 Site Topping 요소만 정리 완료 (스크립트 보존)');
+                    }
+                    
+                    // body 완전 복원
+                    if (originalDoc.body && snapshot.bodyHTML) {
+                        // body innerHTML 완전 교체
+                        document.body.innerHTML = originalDoc.body.innerHTML;
+                        
+                        // body 속성들도 복원
+                        Array.from(document.body.attributes).forEach(attr => {
+                            if (!attr.name.startsWith('data-site-topping')) {
+                                document.body.removeAttribute(attr.name);
                             }
+                        });
+                        Array.from(originalDoc.body.attributes).forEach(attr => {
+                            document.body.setAttribute(attr.name, attr.value);
+                        });
+                        
+                        console.log('[WebPage] body innerHTML 완전 복원 완료');
+                    }
+                    
+                    // Step 5: 스크롤 위치 복원
+                    window.scrollTo(currentScrollX, currentScrollY);
+                    
+                    // Step 6: 새로운 CSS 적용
+                    console.log('[WebPage] 4단계: 새 CSS 적용');
+                    
+                    if (cssCode && cssCode.trim()) {
+                        let styleElement = document.getElementById('site-topping-style') as HTMLStyleElement;
+                        if (!styleElement) {
+                            styleElement = document.createElement('style');
+                            styleElement.id = 'site-topping-style';
+                            styleElement.setAttribute('data-site-topping', 'style');
+                            document.head.appendChild(styleElement);
                         }
-                    });
-                    observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
-                    console.log('[WebPage] ChangeTracker started', sessionId);
-                }
-                function stopAndRevert() {
-                    try { observer && observer.disconnect(); } catch {}
-                    // 이벤트 리스너/타이머 되돌리기
-                    try {
-                        addedListeners.forEach((rec: any) => {
-                            try { (EventTarget.prototype as any).removeEventListener.call(rec.target, rec.type, rec.listener, rec.options); } catch {}
-                        });
-                        addedListeners.length = 0;
-                        timeoutIds.forEach((id: any) => { try { window.clearTimeout(id as any); } catch {} });
-                        intervalIds.forEach((id: any) => { try { window.clearInterval(id as any); } catch {} });
-                        timeoutIds.length = 0; intervalIds.length = 0;
-                    } catch {}
-                    // 구조 변경 되돌리기
-                    for (let i = addedNodes.length - 1; i >= 0; i--) {
-                        const n = addedNodes[i];
-                        try { if ((n as any).parentNode) (n as any).remove(); } catch {}
-                    }
-                    for (let i = removedNodes.length - 1; i >= 0; i--) {
-                        const rec = removedNodes[i];
-                        try {
-                            if (rec.parent) {
-                                if (rec.next && (rec.next as any).parentNode === rec.parent) {
-                                    rec.parent.insertBefore(rec.node, rec.next);
-                                } else {
-                                    rec.parent.appendChild(rec.node);
-                                }
-                            }
-                        } catch {}
-                    }
-                    attrOld.forEach((map: any, el: any) => {
-                        map.forEach((oldVal: any, name: any) => {
-                            try {
-                                if (oldVal === null) el.removeAttribute(name); else el.setAttribute(name, oldVal);
-                            } catch {}
-                        });
-                        try { el.removeAttribute('data-site-topping-marked'); } catch {}
-                    });
-                    textOld.forEach((oldVal: any, node: any) => {
-                        try { node.data = oldVal; } catch {}
-                    });
-                    // clear state
-                    addedNodes.length = 0; removedNodes.length = 0; attrOld.clear(); textOld.clear();
-                    unpatchGlobals();
-                    console.log('[WebPage] ChangeTracker reverted');
-                }
-                return { start, stopAndRevert };
-            })();
-            (g as any).__siteToppingChangeTracker = tracker;
-        }
-    });
-}
-
-async function applyJSToTab(tabId: number, js: string) {
-  // 먼저 기존 효과를 정리
-  await runJSCleanupInTab(tabId);
-
-  // DOM 변경 추적기 준비 및 새 세션 시작
-  await ensureChangeTrackerInTab(tabId);
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    world: 'MAIN',
-    func: () => {
-      try { (window as any).__siteToppingChangeTracker?.start?.(); } catch {}
-    }
-  });
-
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    world: 'MAIN',
-    func: (jsCode: string) => {
-      try {
-        const wrapper = `(() => {\n  try {\n    // 사용자가 원하는 경우 클린업을 등록하세요.\n    // window.__siteTopping_cleanup = () => { /* 되돌리기 */ };\n    // 또는 window.__siteToppingCleanups = [fn1, fn2];\n    ${jsCode}\n  } catch (e) {\n    console.error('[Site Topping] 사용자 코드 오류:', e);\n  }\n})();`;
-        const script = document.createElement('script');
-        script.setAttribute('data-site-topping', 'script');
-        script.textContent = wrapper;
-        document.documentElement.appendChild(script);
-        // 실행 후 정리
-        setTimeout(() => { try { script.remove(); } catch {} }, 0);
-        console.log('[WebPage] Site Topping JS 실행 완료');
-      } catch (error) {
-        console.error('[WebPage] JavaScript 실행 오류:', error);
-        throw error;
-      }
-    },
-    args: [js]
-  });
-
-  console.log('[Background] JavaScript 라이브 적용 완료');
-}
-
-/**
- * 탭에서 프리뷰 제거
- */
-async function removePreviewFromTab(tabId: number) {
-    console.log(`[Background] 탭 ${tabId}에서 프리뷰 제거 시작`);
-
-    // CSS: 스타일 태그 비우기 또는 제거
-    await chrome.scripting.executeScript({
-        target: { tabId },
-        world: 'MAIN',
-        func: () => {
-            const style = document.getElementById('site-topping-style');
-            if (style) {
-                style.remove();
-                console.log('[WebPage] Site Topping 스타일 태그 제거');
-            }
-        }
-    });
-
-    // 레거시 스타일 제거 (이전에 insertCSS 사용한 경우 대비)
-    try {
-        // Chrome의 insertCSS로 삽입한 CSS를 제거하는 유일한 방법: removeCSS 사용
-        const preview = appliedPreviews.get(tabId);
-        if (preview && preview.cssCode.trim()) {
-            console.log('[Background] 이전 CSS 제거 중:', preview.cssCode.substring(0, 50) + '...');
-            await chrome.scripting.removeCSS({
-                target: { tabId },
-                css: addCSSScoping(preview.cssCode)
-            });
-            console.log('[Background] 이전 CSS 제거 완료');
-        }
-        
-        // 추가 안전장치: 모든 Site Topping CSS 제거
-        await chrome.scripting.executeScript({
-            target: { tabId },
-            func: () => {
-                // Site Topping으로 삽입된 모든 스타일 제거
-                const styles = document.querySelectorAll('style');
-                styles.forEach(style => {
-                    if (style.textContent && style.textContent.includes(':not(#site-topping-root')) {
-                        style.remove();
-                        console.log('[WebPage] Site Topping 스타일 제거:', style);
-                    }
-                });
-            }
-        });
-        
-    } catch (cssError) {
-        console.warn('[Background] CSS 제거 실패, 대안 방법 시도:', cssError);
-        
-        // 대안: 스타일 시트를 직접 제거
-        await chrome.scripting.executeScript({
-            target: { tabId },
-            func: () => {
-                // Chrome extension으로 삽입된 스타일시트 찾기 및 제거
-                Array.from(document.styleSheets).forEach(sheet => {
-                    try {
-                        // Chrome extension에서 삽입한 스타일시트는 href가 없거나 특정 패턴을 가짐
-                        if (!sheet.href || sheet.href.startsWith('chrome-extension://')) {
-                            const rules = Array.from(sheet.cssRules || []);
-                            const hasSiteToppingRules = rules.some(rule => 
-                                rule.cssText.includes(':not(#site-topping-root')
-                            );
+                        
+                        // CSS 스코핑 적용
+                        const scopedCSS = cssCode.split('}').filter(rule => rule.trim()).map(rule => {
+                            const trimmed = rule.trim();
+                            if (!trimmed) return '';
                             
-                            if (hasSiteToppingRules && sheet.ownerNode) {
-                                (sheet.ownerNode as HTMLElement).remove();
-                                console.log('[WebPage] Site Topping 스타일시트 제거됨');
+                            const braceIndex = trimmed.indexOf('{');
+                            if (braceIndex === -1) return trimmed + '}';
+                            
+                            const selectors = trimmed.substring(0, braceIndex).trim();
+                            const properties = trimmed.substring(braceIndex + 1).trim();
+                            
+                            if (selectors.startsWith('@') || selectors.includes('/*')) {
+                                return `${selectors} { ${properties} }`;
                             }
+                            
+                            const scopedSelectors = selectors.split(',').map(sel => {
+                                const trimmed = sel.trim();
+                                if (trimmed === '*' || trimmed === 'html' || trimmed === 'body') {
+                                    return `${trimmed}:not(#site-topping-root):not(#site-topping-root *)`;
+                                }
+                                return `${trimmed}:not(#site-topping-root *)`;
+                            }).join(', ');
+                            
+                            return `${scopedSelectors} { ${properties} }`;
+                        }).join('\n');
+                        
+                        styleElement.textContent = scopedCSS;
+                    } else {
+                        // CSS가 비어있으면 스타일 제거
+                        const styleElement = document.getElementById('site-topping-style');
+                        if (styleElement) {
+                            styleElement.remove();
                         }
-                    } catch (e) {
-                        // 브라우저 보안으로 인해 접근 불가한 스타일시트는 무시
                     }
-                });
-            }
-        });
-    }
-    
-    // JavaScript 효과 정리 및 프리뷰 요소 제거
-    await runJSCleanupInTab(tabId);
-    
-    console.log('[Background] 프리뷰 제거 완료');
-}
-
-/**
- * CSS 스코핑 적용 - 익스텐션 UI 보호
- */
-function addCSSScoping(css: string): string {
-    try {
-        const rules = css.split('}').filter(rule => rule.trim());
-        
-        const scopedRules = rules.map(rule => {
-            const trimmed = rule.trim();
-            if (!trimmed) return '';
-            
-            const braceIndex = trimmed.indexOf('{');
-            if (braceIndex === -1) return trimmed + '}';
-            
-            const selectors = trimmed.substring(0, braceIndex).trim();
-            const properties = trimmed.substring(braceIndex + 1).trim();
-            
-            // @규칙이나 주석은 스코핑 제외
-            if (selectors.startsWith('@') || selectors.includes('/*')) {
-                return `${selectors} { ${properties} }`;
-            }
-            
-            // 익스텐션 제외 스코핑 적용
-            const scopedSelectors = selectors
-                .split(',')
-                .map(sel => {
-                    const trimmed = sel.trim();
-                    if (trimmed === '*' || trimmed === 'html' || trimmed === 'body') {
-                        return `${trimmed}:not(#site-topping-root):not(#site-topping-root *)`;
+                    
+                    // Step 7: 새로운 JavaScript 적용
+                    console.log('[WebPage] 5단계: 새 JavaScript 적용');
+                    
+                    if (jsCode && jsCode.trim()) {
+                        // 기존 Site Topping 스크립트 정리
+                        document.querySelectorAll('[data-site-topping="script"]').forEach(el => {
+                            try { el.remove(); } catch (e) {}
+                        });
+                        
+                        const wrapper = `(() => {
+                            try {
+                                // 사용자 코드 실행 전에 유틸리티 함수 제공
+                                window.__siteTopping_cleanup = window.__siteTopping_cleanup || [];
+                                
+                                // 클린업 등록 헬퍼
+                                window.__siteTopping_registerCleanup = function(fn) {
+                                    if (typeof fn === 'function') {
+                                        window.__siteTopping_cleanup.push(fn);
+                                    }
+                                };
+                                
+                                ${jsCode}
+                            } catch (e) {
+                                console.error('[Site Topping] 사용자 코드 실행 오류:', e);
+                            }
+                        })();`;
+                        
+                        const script = document.createElement('script');
+                        script.setAttribute('data-site-topping', 'script');
+                        script.textContent = wrapper;
+                        document.documentElement.appendChild(script);
+                        
+                        setTimeout(() => { try { script.remove(); } catch (e) {} }, 0);
+                    } else {
+                        // JavaScript가 비어있으면 스크립트 정리만
+                        document.querySelectorAll('[data-site-topping="script"]').forEach(el => {
+                            try { el.remove(); } catch (e) {}
+                        });
                     }
-                    return `${trimmed}:not(#site-topping-root *)`;
-                })
-                .join(', ');
-            
-            return `${scopedSelectors} { ${properties} }`;
+                    
+                    // Step 8: 동적 상태 복원 (DOM 안정화 후)
+                    if (preservedState && (window as any).__siteTopping_restoreEvents) {
+                        (window as any).__siteTopping_restoreEvents(preservedState);
+                    }
+                    
+                    console.log('[WebPage] 스냅샷 기반 실시간 업데이트 완료 (복원 + 적용)');
+                    return { success: true };
+                    
+                } catch (error) {
+                    console.error('[WebPage] 실시간 업데이트 실패:', error);
+                    return { success: false, error: error instanceof Error ? error.message : String(error) };
+                }
+            },
+            args: [css || '', js || '']
         });
         
-        return scopedRules.join('\n');
+        if (!result?.result?.success) {
+            throw new Error(result?.result?.error || '스냅샷 기반 실시간 업데이트 실패');
+        }
+        
+        console.log('[Background] 스냅샷 기반 실시간 업데이트 완료');
+        sendResponse({ success: true });
         
     } catch (error) {
-        console.warn('[Background] CSS 스코핑 실패, 원본 사용:', error);
-        return css;
+        console.error('[Background] 스냅샷 기반 실시간 업데이트 실패:', error);
+        sendResponse({ success: false, error: error instanceof Error ? error.message : '알 수 없는 오류' });
     }
 }
+
+// ====== 기존 코드 프리뷰 함수들 (레거시 호환용) ======
+
+/**
+ * 코드 프리뷰 적용 핸들러 - 변경 추적 기반으로 업그레이드
+ */
+async function handleApplyCodePreview(message: any, sender: chrome.runtime.MessageSender, sendResponse: (response: any) => void) {
+    try {
+        console.log('[Background] 레거시 호환: 변경 추적 기반 프리뷰로 리다이렉트');
+        
+        // 새로운 변경 추적 기반 시스템으로 리다이렉트
+        await handleCreateSnapshotAndApply(message, sender, sendResponse);
+        
+    } catch (error) {
+        console.error('[Background] 레거시 프리뷰 적용 실패:', error);
+        sendResponse({ success: false, error: error instanceof Error ? error.message : '알 수 없는 오류' });
+    }
+}
+
+/**
+ * 코드 프리뷰 제거 핸들러 - 변경 추적 기반으로 업그레이드
+ */
+async function handleRemoveCodePreview(message: any, sender: chrome.runtime.MessageSender, sendResponse: (response: any) => void) {
+    try {
+        console.log('[Background] 레거시 호환: 변경 추적 기반 복원으로 리다이렉트');
+        
+        // 새로운 변경 추적 기반 시스템으로 리다이렉트
+        await handleRestoreFromSnapshot(message, sender, sendResponse);
+        
+    } catch (error) {
+        console.error('[Background] 레거시 프리뷰 제거 실패:', error);
+        sendResponse({ success: false, error: error instanceof Error ? error.message : '알 수 없는 오류' });
+    }
+}
+

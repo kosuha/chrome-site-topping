@@ -6,7 +6,7 @@ import { BotMessageSquare, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigR
 import { useDebounce } from '../hooks/useDebounce';
 import { SiteIntegrationService } from '../services/siteIntegration';
 import { useSidePanelMessage } from '../hooks/useSidePanelMessage';
-import { applyCodeToPage, removeCodeFromPage } from '../services/codePreview';
+import { applyCodeToPage, removeCodeFromPage, updateCodePreview } from '../services/codePreview';
 
 interface PanelHeaderProps {
   // 사이드패널에서는 props 불필요
@@ -163,16 +163,23 @@ export default function PanelHeader({}: PanelHeaderProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.isPreviewMode]);
 
-  // 프리뷰 중 코드 변경시: 라이브로 최신 코드 적용
+  // 프리뷰 중 코드 변경시: 실시간 업데이트 (스냅샷 유지)
   useEffect(() => {
     if (!state.isPreviewMode || isInitializingRef.current) return;
 
     const run = async () => {
       try {
         if (!isPreviewActiveRef.current) return;
-        await applyCodeToPage(state.editorCode.css || '', state.editorCode.javascript || '');
+        // 스냅샷 기반 실시간 업데이트 사용
+        await updateCodePreview(state.editorCode.css || '', state.editorCode.javascript || '');
       } catch (error) {
-        console.error('[PanelHeader] 코드 변경 적용 실패:', error);
+        console.error('[PanelHeader] 실시간 코드 업데이트 실패:', error);
+        // 실패 시 전체 재적용으로 폴백
+        try {
+          await applyCodeToPage(state.editorCode.css || '', state.editorCode.javascript || '');
+        } catch (fallbackError) {
+          console.error('[PanelHeader] 폴백 적용도 실패:', fallbackError);
+        }
       }
     };
 

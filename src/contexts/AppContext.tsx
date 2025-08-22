@@ -44,6 +44,8 @@ export interface AppState {
   error: string | null;
   isPreviewMode: boolean;
   isRestoring: boolean; // 코드 복원 중 플래그
+  isCreatingSnapshot: boolean; // 스냅샷 생성 중 플래그
+  hasSnapshot: boolean; // 스냅샷 존재 여부
   editorCode: {
     javascript: string;
     css: string;
@@ -78,6 +80,8 @@ type AppAction =
   | { type: 'SET_PREVIEW_MODE'; payload: boolean }
   | { type: 'TOGGLE_PREVIEW_MODE' }
   | { type: 'SET_RESTORING'; payload: boolean }
+  | { type: 'SET_CREATING_SNAPSHOT'; payload: boolean }
+  | { type: 'SET_HAS_SNAPSHOT'; payload: boolean }
   | { type: 'SET_EDITOR_CODE'; payload: { language: 'javascript' | 'css'; code: string } }
   | { type: 'PUSH_CODE_HISTORY'; payload: { 
       javascript: string; 
@@ -114,6 +118,8 @@ const getInitialState = (): AppState => ({
   error: null,
   isPreviewMode: false,
   isRestoring: false,
+  isCreatingSnapshot: false,
+  hasSnapshot: false,
   editorCode: {
     javascript: '',
     css: ''
@@ -142,9 +148,18 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'SET_ERROR':
       return { ...state, error: action.payload };
     case 'TOGGLE_PREVIEW_MODE':
-      return { ...state, isPreviewMode: !state.isPreviewMode };
+      return { 
+        ...state, 
+        isPreviewMode: !state.isPreviewMode,
+        // 프리뷰 모드를 끄면 스냅샷도 없어짐
+        hasSnapshot: state.isPreviewMode ? false : state.hasSnapshot
+      };
     case 'SET_RESTORING':
       return { ...state, isRestoring: action.payload };
+    case 'SET_CREATING_SNAPSHOT':
+      return { ...state, isCreatingSnapshot: action.payload };
+    case 'SET_HAS_SNAPSHOT':
+      return { ...state, hasSnapshot: action.payload };
     case 'SET_EDITOR_CODE':
       return {
         ...state,
@@ -370,6 +385,8 @@ interface AppContextType {
     setLoading: (loading: boolean) => void;
     setError: (error: string | null) => void;
     togglePreviewMode: () => void;
+    setCreatingSnapshot: (creating: boolean) => void;
+    setHasSnapshot: (hasSnapshot: boolean) => void;
     setEditorCode: (language: 'javascript' | 'css', code: string) => void;
     // 코드 변경 히스토리 관련 액션들 (브라우저 스타일)
     pushCodeHistory: (history: { 
@@ -676,6 +693,8 @@ export function AppProvider({ children }: AppProviderProps) {
     setError: (error: string | null) => dispatch({ type: 'SET_ERROR', payload: error }),
     togglePreviewMode: () => dispatch({ type: 'TOGGLE_PREVIEW_MODE' }),
     setRestoring: (restoring: boolean) => dispatch({ type: 'SET_RESTORING', payload: restoring }),
+    setCreatingSnapshot: (creating: boolean) => dispatch({ type: 'SET_CREATING_SNAPSHOT', payload: creating }),
+    setHasSnapshot: (hasSnapshot: boolean) => dispatch({ type: 'SET_HAS_SNAPSHOT', payload: hasSnapshot }),
     setEditorCode: (language: 'javascript' | 'css', code: string) => dispatch({ type: 'SET_EDITOR_CODE', payload: { language, code } }),
     // 코드 변경 히스토리 관련 액션들 (브라우저 스타일)
     pushCodeHistory: (history: { 
