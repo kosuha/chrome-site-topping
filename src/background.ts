@@ -14,36 +14,81 @@ const reapplyThrottle = new Map<number, number>(); // tabId -> lastTs
 async function reapplyLivePreview(tabId: number) {
   const now = Date.now();
   const last = reapplyThrottle.get(tabId) || 0;
-  if (now - last < 300) return; // 300ms 스로틀
+  if (now - last < 300) {
+    console.log(`[Background] 재적용 스로틀 - 탭 ${tabId}, 대기시간: ${300 - (now - last)}ms`);
+    return; // 300ms 스로틀
+  }
   reapplyThrottle.set(tabId, now);
   
   const preview = appliedPreviews.get(tabId);
-  if (!preview) return;
+  console.log(`[Background] 재적용 확인 - 탭 ${tabId}:`, preview ? `CSS: ${preview.cssCode?.length || 0}자, JS: ${preview.jsCode?.length || 0}자` : '프리뷰 없음');
   
-  console.log('[Background] 메인 브랜치 방식 라이브 프리뷰 재적용:', tabId);
+  if (!preview) {
+    console.log(`[Background] 탭 ${tabId}에 적용된 프리뷰 없음 - 재적용 건너뜀`);
+    return;
+  }
+  
+  console.log(`[Background] 메인 브랜치 방식 라이브 프리뷰 재적용 시작 - 탭 ${tabId}`);
+  console.log(`[Background] 재적용할 코드 - CSS: "${preview.cssCode?.substring(0, 100)}...", JS: "${preview.jsCode?.substring(0, 100)}..."`);
+  
+  // 먼저 시스템 초기화
+  try {
+    await initializeMainBranchSystem(tabId);
+  } catch (initError) {
+    console.error(`[Background] 시스템 초기화 실패 - 탭 ${tabId}:`, initError);
+    return;
+  }
   
   // 메인 브랜치 방식으로 재적용
   try {
-    await chrome.scripting.executeScript({
+    const [result] = await chrome.scripting.executeScript({
       target: { tabId },
       world: 'MAIN',
-      func: (cssCode: string, jsCode: string) => {
-        return (window as any).__siteTopping_applyCodeMainBranch?.(cssCode, jsCode) || { success: false, error: '시스템이 초기화되지 않았습니다' };
+      func: async (cssCode: string, jsCode: string) => {
+        console.log(`[WebPage] 재적용 요청 - CSS: ${cssCode?.length || 0}자, JS: ${jsCode?.length || 0}자`);
+        const applyFunc = (window as any).__siteTopping_applyCodeMainBranch;
+        if (!applyFunc) {
+          console.error('[WebPage] __siteTopping_applyCodeMainBranch 함수 없음');
+          return { success: false, error: '시스템이 초기화되지 않았습니다' };
+        }
+        const result = await applyFunc(cssCode, jsCode);
+        console.log('[WebPage] 재적용 결과:', result);
+        return result;
       },
       args: [preview.cssCode || '', preview.jsCode || '']
     });
+    
+    console.log(`[Background] 재적용 완료 - 탭 ${tabId}:`, result?.result);
+    
+    if (!result?.result?.success) {
+      console.error(`[Background] 재적용 실패 - 탭 ${tabId}:`, result?.result?.error);
+    }
   } catch (error) {
-    console.error('[Background] 라이브 재적용 실패:', error);
+    console.error(`[Background] 라이브 재적용 실패 - 탭 ${tabId}:`, error);
   }
 }
 
-// 네비게이션 완료 시 재적용 (라이브 모드)
+// 페이지 네비게이션 완료 시 적용된 프리뷰 상태 확인 후 재적용
 chrome.webNavigation.onCompleted.addListener(async (details) => {
   try {
-    if (details.frameId !== 0) return; // 최상위 프레임만
-    await reapplyLivePreview(details.tabId);
+    if (details.frameId !== 0) {
+      console.log(`[Background] 서브프레임 네비게이션 무시 - 탭 ${details.tabId}, 프레임 ${details.frameId}`);
+      return; // 최상위 프레임만
+    }
+    
+    console.log(`[Background] 페이지 네비게이션 완료 - 탭 ${details.tabId}, URL: ${details.url}`);
+    console.log(`[Background] 현재 적용된 프리뷰 목록:`, Array.from(appliedPreviews.keys()));
+    
+    // 프리뷰가 적용되어 있다면 새로고침 후에도 재적용
+    const preview = appliedPreviews.get(details.tabId);
+    if (preview) {
+      console.log(`[Background] 페이지 새로고침 감지 - 프리뷰 재적용 시작: 탭 ${details.tabId}`);
+      await reapplyLivePreview(details.tabId);
+    } else {
+      console.log(`[Background] 탭 ${details.tabId}에 적용된 프리뷰 없음 - 재적용 건너뜀`);
+    }
   } catch (e) {
-    console.warn('[Background] 네비게이션 후 재적용 실패:', e);
+    console.error('[Background] 네비게이션 후 재적용 실패:', e);
   }
 });
 
@@ -51,7 +96,13 @@ chrome.webNavigation.onCompleted.addListener(async (details) => {
 chrome.webNavigation.onHistoryStateUpdated.addListener(async (details) => {
   try {
     if (details.frameId !== 0) return;
-    await reapplyLivePreview(details.tabId);
+    
+    // 프리뷰가 적용되어 있다면 SPA 네비게이션 후에도 재적용
+    const preview = appliedPreviews.get(details.tabId);
+    if (preview) {
+      console.log('[Background] SPA 네비게이션 감지 - 프리뷰 재적용:', details.tabId);
+      await reapplyLivePreview(details.tabId);
+    }
   } catch (e) {
     console.warn('[Background] SPA 라우팅 재적용 실패:', e);
   }
@@ -233,12 +284,15 @@ async function handleCreateSnapshotAndApplyMainBranch(message: any, sender: chro
             jsCode: js || ''
         });
         
+        console.log(`[Background] 프리뷰 상태 저장 - 탭 ${targetTabId}: CSS ${(css || '').length}자, JS ${(js || '').length}자`);
+        console.log(`[Background] 현재 추적 중인 탭들:`, Array.from(appliedPreviews.keys()));
+        
         // 메인 브랜치 방식의 코드 적용
         const [result] = await chrome.scripting.executeScript({
             target: { tabId: targetTabId },
             world: 'MAIN',
-            func: (cssCode: string, jsCode: string) => {
-                return (window as any).__siteTopping_applyCodeMainBranch(cssCode, jsCode);
+            func: async (cssCode: string, jsCode: string) => {
+                return await (window as any).__siteTopping_applyCodeMainBranch(cssCode, jsCode);
             },
             args: [css || '', js || '']
         });
@@ -274,15 +328,16 @@ async function handleRestoreFromSnapshotMainBranch(message: any, sender: chrome.
         
         console.log(`[Background] 메인 브랜치 방식 베이스라인 복원 - 탭 ${targetTabId}`);
         
-        // 적용된 코드 추적에서 제거
+        // 적용된 코드 추적에서 제거 (프리뷰 종료로 더 이상 재적용하지 않음)
         appliedPreviews.delete(targetTabId);
+        console.log(`[Background] 탭 ${targetTabId} 프리뷰 상태 제거 - 새로고침 시 재적용 안됨`);
         
         // 메인 브랜치 방식의 베이스라인 복원
         const [result] = await chrome.scripting.executeScript({
             target: { tabId: targetTabId },
             world: 'MAIN',
-            func: () => {
-                return (window as any).__siteTopping_disablePreviewMainBranch?.() || { success: true, restored: false };
+            func: async () => {
+                return await (window as any).__siteTopping_disablePreviewMainBranch?.() || { success: true, restored: false };
             }
         });
         
@@ -328,8 +383,8 @@ async function handleUpdatePreviewCodeMainBranch(message: any, sender: chrome.ru
         const [result] = await chrome.scripting.executeScript({
             target: { tabId: targetTabId },
             world: 'MAIN',
-            func: (cssCode: string, jsCode: string) => {
-                return (window as any).__siteTopping_applyCodeMainBranch(cssCode, jsCode);
+            func: async (cssCode: string, jsCode: string) => {
+                return await (window as any).__siteTopping_applyCodeMainBranch(cssCode, jsCode);
             },
             args: [css || '', js || '']
         });
@@ -362,142 +417,12 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                 
                 // 전역 변수들
                 const EXTENSION_PREFIX = 'site-topping-';
-                let baselineSnapshot: any = null;
                 let isRestoringBaseline = false;
                 let isApplyingCode = false;
-                let appliedCode: any = {};
-                let previewObserver: MutationObserver | null = null;
-                let previewAddedNodes: Set<Element> = new Set();
                 
                 // 익스텐션 루트 찾기
                 function getExtensionRoot(): HTMLElement | null {
                     return document.getElementById('site-topping-root');
-                }
-                
-                // 베이스라인 캡처
-                function captureBaselineIfNeeded(): void {
-                    if (baselineSnapshot) return;
-                    try {
-                        // 익스텐션 루트 제외하고 body 복제
-                        const clone = document.body.cloneNode(true) as HTMLElement;
-                        const extInClone = clone.querySelector('#site-topping-root') as HTMLElement;
-                        if (extInClone) extInClone.remove();
-
-                        // head 요소들의 시그니처 저장
-                        const headSigs = Array.from(document.head.children).map(el => (el as HTMLElement).outerHTML);
-                        
-                        // 요소 속성들 저장
-                        const elementAttributes = new Map<Element, Map<string, string>>();
-                        document.querySelectorAll('*').forEach(el => {
-                            if (el.id !== 'site-topping-root' && !el.closest('#site-topping-root')) {
-                                const attrs = new Map<string, string>();
-                                Array.from(el.attributes).forEach(attr => {
-                                    attrs.set(attr.name, attr.value);
-                                });
-                                if (attrs.size > 0) {
-                                    elementAttributes.set(el, attrs);
-                                }
-                            }
-                        });
-
-                        baselineSnapshot = {
-                            bodyHTML: clone.innerHTML,
-                            scrollX: window.scrollX,
-                            scrollY: window.scrollY,
-                            headSigs,
-                            elementAttributes,
-                        };
-                        
-                        console.log('[WebPage] 메인 브랜치 베이스라인 캡처 완료');
-                    } catch (e) {
-                        console.warn('[Site Topping] 베이스라인 캡처 실패:', e);
-                    }
-                }
-                
-                // 프리뷰 관찰자 시작
-                function startPreviewObserver(): void {
-                    stopPreviewObserverAndCleanup();
-
-                    previewObserver = new MutationObserver((records) => {
-                        for (const rec of records) {
-                            if (rec.type === 'childList') {
-                                rec.addedNodes.forEach((n) => {
-                                    if (n.nodeType !== Node.ELEMENT_NODE) return;
-                                    const el = n as Element;
-                                    if (shouldIgnoreAddedElement(el)) return;
-                                    (el as HTMLElement).setAttribute('data-site-topping-added', 'true');
-                                    previewAddedNodes.add(el);
-                                });
-                            }
-                        }
-                    });
-
-                    try {
-                        previewObserver.observe(document.documentElement, {
-                            childList: true,
-                            subtree: true,
-                            attributes: true,
-                            attributeFilter: ['style', 'class', 'data-*']
-                        });
-                    } catch (e) {
-                        console.warn('[Site Topping] 프리뷰 옵저버 시작 실패:', e);
-                    }
-                }
-                
-                // 추가된 요소 무시 여부 확인
-                function shouldIgnoreAddedElement(el: Element): boolean {
-                    if (el.id && el.id.startsWith(EXTENSION_PREFIX)) return true;
-                    const root = getExtensionRoot();
-                    if (root && (el === root || root.contains(el))) return true;
-                    return false;
-                }
-                
-                // 프리뷰 관찰자 정리
-                function stopPreviewObserverAndCleanup(): void {
-                    try {
-                        if (previewObserver) {
-                            previewObserver.disconnect();
-                            previewObserver = null;
-                        }
-                        const root = getExtensionRoot();
-                        previewAddedNodes.forEach((el) => {
-                            try {
-                                if (!el.isConnected) return;
-                                if (root && (el === root || root.contains(el))) return;
-                                el.remove();
-                            } catch {}
-                        });
-                    } finally {
-                        previewAddedNodes.clear();
-                    }
-                }
-                
-                // JavaScript 정리
-                function cleanupJavaScriptEffects(): void {
-                    try {
-                        window.postMessage({ type: 'SITE_TOPPING_PREVIEW_STOP' }, '*');
-                    } catch (e) {
-                        console.warn('[Site Topping] 페이지 컨텍스트 정리 실패:', e);
-                    }
-                    
-                    setTimeout(() => {
-                        try {
-                            window.postMessage({ type: 'SITE_TOPPING_FORCE_CLEANUP' }, '*');
-                        } catch {}
-                    }, 100);
-                }
-                
-                // 적용된 코드 제거
-                function removeCodeFromPage(): void {
-                    if (appliedCode.css) {
-                        appliedCode.css.remove();
-                        appliedCode.css = undefined;
-                    }
-
-                    if (appliedCode.js) {
-                        appliedCode.js.remove();
-                        appliedCode.js = undefined;
-                    }
                 }
                 
                 // CSS 스코핑
@@ -520,11 +445,11 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                             
                             // 선택자 스코핑
                             const scopedSelectors = selectors.split(',').map(sel => {
-                                const trimmed = sel.trim();
-                                if (trimmed === '*' || trimmed === 'html' || trimmed === 'body') {
-                                    return `${trimmed}:not(#site-topping-root):not(#site-topping-root *)`;
+                                const s = sel.trim();
+                                if (s === '*' || s === 'html' || s === 'body') {
+                                    return `${s}:not(#site-topping-root):not(#site-topping-root *)`;
                                 }
-                                return `${trimmed}:not(#site-topping-root *)`;
+                                return `${s}:not(#site-topping-root *)`;
                             }).join(', ');
                             
                             return `${scopedSelectors} { ${properties} }`;
@@ -535,136 +460,381 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                     }
                 }
                 
-                // 베이스라인 복원
-                function restoreBaseline(): void {
-                    if (!baselineSnapshot || isRestoringBaseline) return;
-                    isRestoringBaseline = true;
+                // Preview manager (no-eval, operation-log rollback)
+                const __preview = (() => {
+                  const state: any = {
+                    guard: false,
+                    patched: false,
+                    logs: {
+                      addedNodes: new Set<Element>(),
+                      attrChanges: [] as any[],
+                      styleChanges: [] as any[],
+                      classOriginals: new Map<Element, string>(),
+                      listeners: [] as any[],
+                      timers: [] as any[],
+                      rafs: [] as number[],
+                      observers: [] as MutationObserver[],
+                    },
+                    originals: {} as any,
+                    css: { sheet: null as any, styleEl: null as HTMLStyleElement | null },
+                    js: { blobUrl: null as string | null, module: null as any, scriptEl: null as HTMLScriptElement | null },
+                  };
+                  
+                  function shouldIgnoreAddedElement(el: Element): boolean {
+                    if ((el as HTMLElement).id && (el as HTMLElement).id.startsWith(EXTENSION_PREFIX)) return true;
+                    const root = getExtensionRoot();
+                    if (root && (el === root || root.contains(el))) return true;
+                    return false;
+                  }
+                  
+                  function patchIfNeeded(){
+                    if (state.patched) return;
+                    state.patched = true;
+                    const o = state.originals;
                     
-                    try {
-                        removeCodeFromPage();
-                        cleanupJavaScriptEffects();
-                        
+                    // Element append/insert/remove
+                    o.appendChild = (Element.prototype as any).appendChild;
+                    (Element.prototype as any).appendChild = function(node: any){
+                      if (state.guard && node && node.nodeType === 1 && !shouldIgnoreAddedElement(node)) {
+                        state.logs.addedNodes.add(node);
+                      }
+                      return o.appendChild.call(this, node);
+                    };
+                    o.insertBefore = (Element.prototype as any).insertBefore;
+                    (Element.prototype as any).insertBefore = function(node: any, ref: any){
+                      if (state.guard && node && node.nodeType === 1 && !shouldIgnoreAddedElement(node)) {
+                        state.logs.addedNodes.add(node);
+                      }
+                      return o.insertBefore.call(this, node, ref);
+                    };
+                    o.removeChild = (Element.prototype as any).removeChild;
+                    (Element.prototype as any).removeChild = function(child: any){
+                      return o.removeChild.call(this, child);
+                    };
+                    // setAttribute/removeAttribute
+                    o.setAttribute = (Element.prototype as any).setAttribute;
+                    (Element.prototype as any).setAttribute = function(name: string, value: string){
+                      if (state.guard && this instanceof Element && name !== 'data-site-topping-added') {
+                        const existed = this.hasAttribute(name);
+                        const prev = existed ? this.getAttribute(name) : null;
+                        state.logs.attrChanges.push({ el: this, name, prev, existed });
+                      }
+                      return o.setAttribute.call(this, name, value);
+                    };
+                    o.removeAttribute = (Element.prototype as any).removeAttribute;
+                    (Element.prototype as any).removeAttribute = function(name: string){
+                      if (state.guard && this instanceof Element) {
+                        const existed = this.hasAttribute(name);
+                        const prev = existed ? this.getAttribute(name) : null;
+                        state.logs.attrChanges.push({ el: this, name, prev, existed });
+                      }
+                      return o.removeAttribute.call(this, name);
+                    };
+                    // classList ops
+                    function recordClassOriginal(el: Element){
+                      if (state.guard && el && !state.logs.classOriginals.has(el)) {
+                        state.logs.classOriginals.set(el, (el as HTMLElement).className || '');
+                      }
+                    }
+                    o.classListAdd = (DOMTokenList.prototype as any).add;
+                    (DOMTokenList.prototype as any).add = function(...tokens: string[]){
+                      recordClassOriginal((this as any).ownerElement);
+                      return o.classListAdd.apply(this, tokens as any);
+                    };
+                    o.classListRemove = (DOMTokenList.prototype as any).remove;
+                    (DOMTokenList.prototype as any).remove = function(...tokens: string[]){
+                      recordClassOriginal((this as any).ownerElement);
+                      return o.classListRemove.apply(this, tokens as any);
+                    };
+                    o.classListToggle = (DOMTokenList.prototype as any).toggle;
+                    (DOMTokenList.prototype as any).toggle = function(token: string, force?: boolean){
+                      recordClassOriginal((this as any).ownerElement);
+                      return o.classListToggle.call(this, token, force);
+                    };
+                    // style.setProperty/removeProperty
+                    o.setProperty = (CSSStyleDeclaration.prototype as any).setProperty;
+                    (CSSStyleDeclaration.prototype as any).setProperty = function(prop: string, val: string | null, priority?: string){
+                      if (state.guard) {
+                        const el = (this as any).__element || (this as any).ownerElement;
+                        if (el instanceof Element) {
+                          const prev = (this as any).getPropertyValue(prop);
+                          const prio = (this as any).getPropertyPriority(prop);
+                          state.logs.styleChanges.push({ el, prop, prev, priority: prio });
+                        }
+                      }
+                      return o.setProperty.call(this, prop, val as any, priority);
+                    };
+                    o.removeProperty = (CSSStyleDeclaration.prototype as any).removeProperty;
+                    (CSSStyleDeclaration.prototype as any).removeProperty = function(prop: string){
+                      if (state.guard) {
+                        const el = (this as any).__element || (this as any).ownerElement;
+                        if (el instanceof Element) {
+                          const prev = (this as any).getPropertyValue(prop);
+                          const prio = (this as any).getPropertyPriority(prop);
+                          state.logs.styleChanges.push({ el, prop, prev, priority: prio });
+                        }
+                      }
+                      return o.removeProperty.call(this, prop);
+                    };
+                    // addEventListener/removeEventListener
+                    o.addEventListener = (EventTarget.prototype as any).addEventListener;
+                    o.removeEventListener = (EventTarget.prototype as any).removeEventListener;
+                    (EventTarget.prototype as any).addEventListener = function(type: string, listener: any, options?: any){
+                      let wrapped = listener;
+                      if (listener && typeof listener === 'function') {
+                        wrapped = function(this: any, ...args: any[]){
+                          const prev = state.guard; state.guard = true;
+                          try { return (listener as any).apply(this, args); }
+                          finally { state.guard = prev; }
+                        };
+                        (wrapped as any).__st_orig = listener;
+                      }
+                      if (state.guard) {
+                        state.logs.listeners.push({ target: this, type, listener: wrapped, orig: listener, options });
+                      }
+                      return o.addEventListener.call(this, type, wrapped, options);
+                    };
+                    (EventTarget.prototype as any).removeEventListener = function(type: string, listener: any, options?: any){
+                      const rec = state.logs.listeners.find((l: any) => l.target === this && l.type === type && (l.orig === listener || l.listener === listener));
+                      const toRemove = rec ? rec.listener : listener;
+                      return o.removeEventListener.call(this, type, toRemove, options);
+                    };
+                    // timers
+                    o.setTimeout = window.setTimeout;
+                    o.clearTimeout = window.clearTimeout;
+                    window.setTimeout = function(handler: any, timeout?: number, ...args: any[]): any {
+                      const wrapped = typeof handler === 'function' ? function(...a: any[]){
+                        const prev = state.guard; state.guard = true;
+                        try { return handler(...a); } finally { state.guard = prev; }
+                      } : handler;
+                      const id = o.setTimeout.call(window, wrapped as any, timeout as any, ...args);
+                      if (state.guard) state.logs.timers.push({ kind: 'timeout', id });
+                      return id;
+                    } as any;
+                    window.clearTimeout = function(id: any){ return o.clearTimeout.call(window, id); } as any;
+
+                    o.setInterval = window.setInterval;
+                    o.clearInterval = window.clearInterval;
+                    window.setInterval = function(handler: any, timeout?: number, ...args: any[]){
+                      const wrapped = typeof handler === 'function' ? function(...a: any[]){
+                        const prev = state.guard; state.guard = true;
+                        try { return handler(...a); } finally { state.guard = prev; }
+                      } : handler;
+                      const id = o.setInterval.call(window, wrapped as any, timeout as any, ...args);
+                      if (state.guard) state.logs.timers.push({ kind: 'interval', id });
+                      return id;
+                    } as any;
+                    window.clearInterval = function(id: any){ return o.clearInterval.call(window, id); } as any;
+
+                    o.requestAnimationFrame = window.requestAnimationFrame;
+                    o.cancelAnimationFrame = window.cancelAnimationFrame;
+                    window.requestAnimationFrame = function(cb: FrameRequestCallback){
+                      const wrapped = function(ts: number){
+                        const prev = state.guard; state.guard = true;
+                        try { return cb(ts); } finally { state.guard = prev; }
+                      };
+                      const id = o.requestAnimationFrame.call(window, wrapped);
+                      if (state.guard) state.logs.rafs.push(id);
+                      return id;
+                    };
+                    window.cancelAnimationFrame = function(id: number){ return o.cancelAnimationFrame.call(window, id); } as any;
+
+                    // MutationObserver
+                    o.MutationObserver = (window as any).MutationObserver;
+                    (window as any).MutationObserver = function(callback: any){
+                      const wrappedCb = function(records: any[], observer: any){
+                        const prev = state.guard; state.guard = true;
+                        try { return callback(records, observer); } finally { state.guard = prev; }
+                      };
+                      const obs = new o.MutationObserver(wrappedCb);
+                      if (state.guard) state.logs.observers.push(obs);
+                      return obs;
+                    } as any;
+                    (window as any).MutationObserver.prototype = o.MutationObserver.prototype;
+                  }
+                  
+                  function unpatch(){
+                    if (!state.patched) return;
+                    const o = state.originals;
+                    (Element.prototype as any).appendChild = o.appendChild;
+                    (Element.prototype as any).insertBefore = o.insertBefore;
+                    (Element.prototype as any).removeChild = o.removeChild;
+                    (Element.prototype as any).setAttribute = o.setAttribute;
+                    (Element.prototype as any).removeAttribute = o.removeAttribute;
+                    (DOMTokenList.prototype as any).add = o.classListAdd;
+                    (DOMTokenList.prototype as any).remove = o.classListRemove;
+                    (DOMTokenList.prototype as any).toggle = o.classListToggle;
+                    (CSSStyleDeclaration.prototype as any).setProperty = o.setProperty;
+                    (CSSStyleDeclaration.prototype as any).removeProperty = o.removeProperty;
+                    (EventTarget.prototype as any).addEventListener = o.addEventListener;
+                    (EventTarget.prototype as any).removeEventListener = o.removeEventListener;
+                    (window as any).setTimeout = o.setTimeout;
+                    (window as any).clearTimeout = o.clearTimeout;
+                    (window as any).setInterval = o.setInterval;
+                    (window as any).clearInterval = o.clearInterval;
+                    (window as any).requestAnimationFrame = o.requestAnimationFrame;
+                    (window as any).cancelAnimationFrame = o.cancelAnimationFrame;
+                    (window as any).MutationObserver = o.MutationObserver;
+                    state.patched = false;
+                  }
+                  
+                  function clearCss(){
+                    if (state.css.sheet) {
+                      try {
+                        const sheets = (document as any).adoptedStyleSheets || [];
+                        (document as any).adoptedStyleSheets = sheets.filter((s: any) => s !== state.css.sheet);
+                      } catch {}
+                      state.css.sheet = null;
+                    }
+                    if (state.css.styleEl) { try { state.css.styleEl.remove(); } catch {} state.css.styleEl = null; }
+                  }
+                  
+                  function clearJs(){
+                    if (state.js.scriptEl) { try { state.js.scriptEl.remove(); } catch {} state.js.scriptEl = null; }
+                    if (state.js.blobUrl) { try { URL.revokeObjectURL(state.js.blobUrl); } catch {} state.js.blobUrl = null; }
+                    state.js.module = null;
+                  }
+                  
+                  function rollback(){
+                    // remove added nodes
+                    state.logs.addedNodes.forEach((el: any) => {
+                      try {
+                        if (!el.isConnected) return;
+                        if ((el as HTMLElement).id && (el as HTMLElement).id.startsWith(EXTENSION_PREFIX)) return;
                         const root = getExtensionRoot();
-                        
-                        // 애니메이션이 있는 페이지는 gentle restore 사용
-                        const hasAnimations = document.querySelectorAll('[style*="transition"], [style*="animation"], .animate, [class*="animate"]').length > 0;
-                        
-                        if (hasAnimations) {
-                            // Gentle restore: DOM 구조 보존하면서 속성만 복원
-                            performGentleRestore();
+                        if (root && (el === root || root.contains(el))) return;
+                        el.remove();
+                      } catch {}
+                    });
+                    // restore attributes
+                    for (let i = state.logs.attrChanges.length - 1; i >= 0; i--) {
+                      const rec = state.logs.attrChanges[i];
+                      try {
+                        if (!rec.el || !rec.el.isConnected) continue;
+                        if (rec.existed && rec.prev != null) rec.el.setAttribute(rec.name, rec.prev);
+                        else rec.el.removeAttribute(rec.name);
+                      } catch {}
+                    }
+                    // restore class
+                    state.logs.classOriginals.forEach((cls: string, el: Element) => {
+                      try { if ((el as any) && (el as any).isConnected) (el as HTMLElement).className = cls; } catch {}
+                    });
+                    // restore styles
+                    for (let i = state.logs.styleChanges.length - 1; i >= 0; i--) {
+                      const rec = state.logs.styleChanges[i];
+                      try {
+                        if (!rec.el || !rec.el.isConnected) continue;
+                        if (rec.prev) (rec.el as HTMLElement).style.setProperty(rec.prop, rec.prev, rec.priority || '');
+                        else (rec.el as HTMLElement).style.removeProperty(rec.prop);
+                      } catch {}
+                    }
+                    // remove listeners
+                    state.logs.listeners.forEach((l: any) => {
+                      try { (l.target as any).removeEventListener(l.type, l.listener, l.options); } catch {}
+                    });
+                    // clear timers and rafs
+                    state.logs.timers.forEach((t: any) => { try { t.kind === 'timeout' ? clearTimeout(t.id) : clearInterval(t.id); } catch {} });
+                    state.logs.rafs.forEach((id: number) => { try { cancelAnimationFrame(id); } catch {} });
+                    // disconnect observers
+                    state.logs.observers.forEach((o: MutationObserver) => { try { o.disconnect(); } catch {} });
+                    
+                    // clear logs
+                    state.logs.addedNodes.clear();
+                    state.logs.attrChanges = [];
+                    state.logs.styleChanges = [];
+                    state.logs.classOriginals.clear();
+                    state.logs.listeners = [];
+                    state.logs.timers = [];
+                    state.logs.rafs = [];
+                    state.logs.observers = [];
+                  }
+                  
+                  async function apply(cssCode: string, jsCode: string){
+                    patchIfNeeded();
+                    
+                    // CSS
+                    clearCss();
+                    if (cssCode && cssCode.trim()) {
+                      const scoped = applyCSSScoping(cssCode);
+                      try {
+                        if ('adoptedStyleSheets' in document && typeof (window as any).CSSStyleSheet !== 'undefined') {
+                          const sheet = new (window as any).CSSStyleSheet();
+                          await (sheet as any).replace(scoped);
+                          const sheets = (document as any).adoptedStyleSheets || [];
+                          (document as any).adoptedStyleSheets = [...sheets, sheet];
+                          state.css.sheet = sheet;
                         } else {
-                            // Full restore: DOM 완전 재구성
-                            performFullRestore(root);
+                          const styleEl = document.createElement('style');
+                          styleEl.id = `${EXTENSION_PREFIX}injected-css`;
+                          styleEl.textContent = scoped;
+                          document.head.appendChild(styleEl);
+                          state.css.styleEl = styleEl;
                         }
-                        
-                        // 스크롤 위치 복원
-                        window.scrollTo(baselineSnapshot.scrollX, baselineSnapshot.scrollY);
-                        
-                        // 애니메이션 상태 복원
-                        restoreAnimationStates();
-                        
-                        stopPreviewObserverAndCleanup();
-                        
-                    } catch (e) {
-                        console.warn('[Site Topping] 베이스라인 복원 실패:', e);
-                    } finally {
-                        isRestoringBaseline = false;
+                      } catch {
+                        const styleEl = document.createElement('style');
+                        styleEl.id = `${EXTENSION_PREFIX}injected-css`;
+                        styleEl.textContent = scoped;
+                        document.head.appendChild(styleEl);
+                        state.css.styleEl = styleEl;
+                      }
                     }
-                }
-                
-                // Gentle restore
-                function performGentleRestore(): void {
-                    // 추가된 요소들만 제거
-                    const addedElements = document.querySelectorAll('[data-site-topping-added]');
-                    addedElements.forEach(el => el.remove());
                     
-                    // 원본 속성들 복원
-                    if (baselineSnapshot?.elementAttributes) {
-                        baselineSnapshot.elementAttributes.forEach((attrs: Map<string, string>, element: Element) => {
-                            if (!element.isConnected) return;
-                            
-                            // 스타일 속성 복원
-                            const originalStyle = attrs.get('style') || '';
-                            if (element.getAttribute('style') !== originalStyle) {
-                                if (originalStyle) {
-                                    element.setAttribute('style', originalStyle);
-                                } else {
-                                    element.removeAttribute('style');
-                                }
-                            }
-                            
-                            // 클래스 속성 복원
-                            const originalClass = attrs.get('class') || '';
-                            if (element.getAttribute('class') !== originalClass) {
-                                if (originalClass) {
-                                    element.setAttribute('class', originalClass);
-                                } else {
-                                    element.removeAttribute('class');
-                                }
-                            }
-                        });
+                    // JS
+                    clearJs();
+                    if (jsCode && jsCode.trim()) {
+                      try {
+                        const blob = new Blob([jsCode], { type: 'text/javascript' });
+                        const url = URL.createObjectURL(blob);
+                        state.js.blobUrl = url;
+                        const prev = state.guard; state.guard = true;
+                        try {
+                          state.js.module = await import(/* @vite-ignore */ url);
+                        } finally {
+                          state.guard = prev;
+                        }
+                      } catch (e) {
+                        console.error('[Site Topping] JS 모듈 로드 실패:', e);
+                      }
                     }
-                }
-                
-                // Full restore
-                function performFullRestore(root: HTMLElement | null): void {
-                    if (!baselineSnapshot) return;
                     
-                    if (!root) {
-                        document.body.innerHTML = baselineSnapshot.bodyHTML;
-                    } else {
-                        // 익스텐션 루트 보존하면서 복원
-                        if (root.parentElement !== document.body) {
-                            document.body.appendChild(root);
-                        }
-                        const children = Array.from(document.body.childNodes);
-                        for (const node of children) {
-                            if (node !== root) node.parentNode?.removeChild(node);
-                        }
-                        const tpl = document.createElement('template');
-                        tpl.innerHTML = baselineSnapshot.bodyHTML;
-                        document.body.insertBefore(tpl.content, root);
+                    // Reflow nudge
+                    try { document.documentElement.offsetHeight; window.dispatchEvent(new Event('resize')); } catch {}
+                  }
+                  
+                  async function update(cssCode: string, jsCode: string){
+                    clearCss();
+                    clearJs();
+                    rollback();
+                    await apply(cssCode, jsCode);
+                    return { success: true };
+                  }
+                  
+                  async function disable(){
+                    clearCss();
+                    clearJs();
+                    rollback();
+                    unpatch();
+                    return { success: true, restored: true };
+                  }
+                  
+                  (window as any).__SiteToppingAPI = {
+                    registerCleanup(fn: Function){
+                      const arr = (state as any).cleanups || ((state as any).cleanups = []);
+                      arr.push(fn);
+                    },
+                    withPreviewSource(fn: Function){
+                      return function(this: any, ...args: any[]){
+                        const prev = state.guard; state.guard = true;
+                        try { return fn.apply(this, args); } finally { state.guard = prev; }
+                      }
                     }
-                }
-                
-                // 애니메이션 상태 복원
-                function restoreAnimationStates(): void {
-                    try {
-                        // 리플로우 강제 실행
-                        document.documentElement.offsetHeight;
-                        document.body.offsetHeight;
-                        
-                        // 애니메이션 요소들 재시작
-                        const animatedElements = document.querySelectorAll('[style*="animation"], [style*="transition"], [class*="animate"]');
-                        animatedElements.forEach(el => {
-                            if (el.closest('#site-topping-root')) return;
-                            
-                            const htmlEl = el as HTMLElement;
-                            const computedStyle = window.getComputedStyle(htmlEl);
-                            
-                            if (computedStyle.animationName !== 'none') {
-                                const originalDisplay = htmlEl.style.display;
-                                htmlEl.style.display = 'none';
-                                htmlEl.offsetHeight;
-                                htmlEl.style.display = originalDisplay;
-                            }
-                        });
-                        
-                        // 마우스 이벤트 재트리거
-                        setTimeout(() => {
-                            try {
-                                document.body.offsetHeight;
-                                window.dispatchEvent(new Event('resize'));
-                            } catch {}
-                        }, 50);
-                        
-                    } catch (e) {
-                        console.warn('[Site Topping] 애니메이션 상태 복원 실패:', e);
-                    }
-                }
+                  };
+                  
+                  return { apply, update, disable };
+                })();
                 
                 // 메인 함수: 코드 적용
-                (window as any).__siteTopping_applyCodeMainBranch = function(cssCode: string, jsCode: string) {
+                (window as any).__siteTopping_applyCodeMainBranch = async function(cssCode: string, jsCode: string) {
                     if (isApplyingCode || isRestoringBaseline) {
                         console.warn('[Site Topping] 코드 적용 차단 - 다른 작업 진행 중');
                         return { success: false, error: '다른 작업 진행 중' };
@@ -673,52 +843,10 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                     isApplyingCode = true;
                     
                     try {
-                        // 베이스라인 캡처 (한 번만)
-                        captureBaselineIfNeeded();
-                        
-                        // 기존 익스텐션 코드만 정리 (베이스라인 유지)
-                        removeCodeFromPage();
-                        
-                        // 프리뷰 관찰자 시작
-                        startPreviewObserver();
-                        
-                        // 프리뷰 시작 알림
-                        try { 
-                            window.postMessage({ type: 'SITE_TOPPING_PREVIEW_START' }, '*'); 
-                        } catch {}
-
-                        // CSS 적용
-                        if (cssCode && cssCode.trim()) {
-                            const styleElement = document.createElement('style');
-                            styleElement.id = `${EXTENSION_PREFIX}injected-css`;
-                            styleElement.textContent = applyCSSScoping(cssCode);
-                            document.head.appendChild(styleElement);
-                            appliedCode.css = styleElement;
-                        }
-
-                        // JavaScript 적용
-                        if (jsCode && jsCode.trim()) {
-                            try {
-                                // 페이지 컨텍스트에서 직접 실행
-                                const func = new Function(jsCode);
-                                func();
-                                
-                                // 마커 생성
-                                const markerElement = document.createElement('script');
-                                markerElement.id = `${EXTENSION_PREFIX}injected-js-marker`;
-                                markerElement.setAttribute('data-type', 'text/plain');
-                                markerElement.dataset.applied = 'true';
-                                markerElement.dataset.timestamp = Date.now().toString();
-                                document.head.appendChild(markerElement);
-                                appliedCode.js = markerElement;
-                            } catch (error) {
-                                console.error('[Site Topping] JavaScript 실행 실패:', error);
-                            }
-                        }
-
+                        try { window.postMessage({ type: 'SITE_TOPPING_PREVIEW_START' }, '*'); } catch {}
+                        await __preview.update(cssCode || '', jsCode || '');
                         console.log('[WebPage] 메인 브랜치 방식 코드 적용 완료');
                         return { success: true };
-                        
                     } catch (error) {
                         console.error('[WebPage] 메인 브랜치 방식 코드 적용 실패:', error);
                         return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -728,7 +856,7 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                 };
                 
                 // 메인 함수: 프리뷰 비활성화
-                (window as any).__siteTopping_disablePreviewMainBranch = function() {
+                (window as any).__siteTopping_disablePreviewMainBranch = async function() {
                     if (isApplyingCode) {
                         console.warn('[Site Topping] 프리뷰 비활성화 차단 - 코드 적용 진행 중');
                         setTimeout(() => (window as any).__siteTopping_disablePreviewMainBranch(), 150);
@@ -736,12 +864,9 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                     }
                     
                     try {
-                        // 베이스라인 복원
-                        restoreBaseline();
-                        
+                        const result = await __preview.disable();
                         console.log('[WebPage] 메인 브랜치 방식 프리뷰 비활성화 완료');
-                        return { success: true, restored: true };
-                        
+                        return result;
                     } catch (error) {
                         console.error('[WebPage] 메인 브랜치 방식 프리뷰 비활성화 실패:', error);
                         return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -789,35 +914,43 @@ async function getCurrentDomain(): Promise<string | null> {
 }
 
 async function executeScriptInTab(tabId: number, code: string): Promise<any> {
-    // Method 1: World MAIN을 사용해서 페이지 메인 컨텍스트에서 실행 (가장 강력)
+    // MAIN world에서 eval 없이 Blob 모듈 import로 실행
     try {
-        const result = await chrome.scripting.executeScript({
+        const [result] = await chrome.scripting.executeScript({
             target: { tabId },
-            world: 'MAIN', // 페이지의 메인 컨텍스트에서 실행 (CSP 우회)
-            func: (jsCode: string) => {
+            world: 'MAIN',
+            func: async (jsCode: string) => {
                 try {
-                    // Function constructor 사용 (CSP 정책 준수)
-                    const func = new Function(jsCode);
-                    return func();
-                } catch (funcError) {
-                    console.error('[MAIN World] Function constructor failed:', funcError);
-                    // Script element fallback
+                    // 우선 Blob ES Module import 시도
+                    const blob = new Blob([jsCode], { type: 'text/javascript' });
+                    const url = URL.createObjectURL(blob);
                     try {
-                        const script = document.createElement('script');
-                        script.textContent = jsCode;
-                        document.head.appendChild(script);
-                        document.head.removeChild(script);
-                        return { success: true, method: 'script-element' };
-                    } catch (scriptError) {
-                        console.error('[MAIN World] Script element failed:', scriptError);
-                        return { success: false, error: scriptError instanceof Error ? scriptError.message : 'Script execution failed' };
+                        await import(/* @vite-ignore */ url);
+                        URL.revokeObjectURL(url);
+                        return { success: true, method: 'import' };
+                    } catch (e) {
+                        URL.revokeObjectURL(url);
+                        // 폴백: module script로 로드
+                        const blob2 = new Blob([jsCode], { type: 'text/javascript' });
+                        const url2 = URL.createObjectURL(blob2);
+                        await new Promise<void>((resolve, reject) => {
+                            const s = document.createElement('script');
+                            s.type = 'module';
+                            s.src = url2;
+                            s.onload = () => { try { URL.revokeObjectURL(url2); } catch {} ; resolve(); };
+                            s.onerror = (err) => { try { URL.revokeObjectURL(url2); } catch {} ; reject(err); };
+                            document.head.appendChild(s);
+                        });
+                        return { success: true, method: 'script-module' };
                     }
+                } catch (err) {
+                    return { success: false, error: err instanceof Error ? err.message : 'Script execution failed' };
                 }
             },
             args: [code]
         });
         
-        return result;
+        return result?.result;
     } catch (mainWorldError) {
         console.error('[Background] MAIN world execution failed:', mainWorldError);
         throw new Error(`Script execution failed: ${mainWorldError instanceof Error ? mainWorldError.message : String(mainWorldError)}`);

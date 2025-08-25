@@ -183,7 +183,7 @@ export default function ChatTab() {
         state.editorCode.css
       );
 
-      const siteCode = await aiService.getCurrentSiteCode();
+      const siteCode = state.selectedSiteCode;
 
       await aiService.sendChatMessage(
         userMessage.content,

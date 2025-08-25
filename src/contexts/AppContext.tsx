@@ -46,6 +46,7 @@ export interface AppState {
   isRestoring: boolean; // 코드 복원 중 플래그
   isCreatingSnapshot: boolean; // 스냅샷 생성 중 플래그
   hasSnapshot: boolean; // 스냅샷 존재 여부
+  selectedSiteCode: string | null; // 사용자가 선택한 사이트 코드
   editorCode: {
     javascript: string;
     css: string;
@@ -82,6 +83,7 @@ type AppAction =
   | { type: 'SET_RESTORING'; payload: boolean }
   | { type: 'SET_CREATING_SNAPSHOT'; payload: boolean }
   | { type: 'SET_HAS_SNAPSHOT'; payload: boolean }
+  | { type: 'SET_SELECTED_SITE_CODE'; payload: string | null }
   | { type: 'SET_EDITOR_CODE'; payload: { language: 'javascript' | 'css'; code: string } }
   | { type: 'PUSH_CODE_HISTORY'; payload: { 
       javascript: string; 
@@ -120,6 +122,7 @@ const getInitialState = (): AppState => ({
   isRestoring: false,
   isCreatingSnapshot: false,
   hasSnapshot: false,
+  selectedSiteCode: null,
   editorCode: {
     javascript: '',
     css: ''
@@ -160,6 +163,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, isCreatingSnapshot: action.payload };
     case 'SET_HAS_SNAPSHOT':
       return { ...state, hasSnapshot: action.payload };
+    case 'SET_SELECTED_SITE_CODE':
+      return { ...state, selectedSiteCode: action.payload };
     case 'SET_EDITOR_CODE':
       return {
         ...state,
@@ -387,6 +392,7 @@ interface AppContextType {
     togglePreviewMode: () => void;
     setCreatingSnapshot: (creating: boolean) => void;
     setHasSnapshot: (hasSnapshot: boolean) => void;
+    setSelectedSiteCode: (siteCode: string | null) => void;
     setEditorCode: (language: 'javascript' | 'css', code: string) => void;
     // 코드 변경 히스토리 관련 액션들 (브라우저 스타일)
     pushCodeHistory: (history: { 
@@ -416,12 +422,74 @@ interface AppContextType {
     loadThreadsFromServer: (threads: ChatThread[]) => void;
     addServerThread: (thread: ChatThread) => void;
     loadThreadMessages: (threadId: string, messages: ChatMessage[]) => void;
+    loadSiteHistory: (siteCode: string) => Promise<void>;
   };
   computed: {
     currentThread: ChatThread | null;
     currentMessages: ChatMessage[];
   };
 }
+
+// 선택된 사이트의 히스토리를 로드하는 함수
+const loadSiteHistory = async (siteCode: string, dispatch: React.Dispatch<AppAction>, currentState: AppState) => {
+  try {
+    console.log('📝 [loadSiteHistory] 서버에서 코드 버전 조회 중...', siteCode);
+    const allVersions = await getAllVersions(siteCode);
+    console.log('📝 [loadSiteHistory] 서버 코드 버전:', allVersions.length, '개');
+    
+    if (allVersions.length > 0) {
+      // 버전들을 히스토리로 재구성
+      console.log('🔄 [loadSiteHistory] 코드 히스토리 재구성 중...');
+      const reconstructedSteps = reconstructFromVersions(allVersions);
+      console.log('🔄 [loadSiteHistory] 재구성된 히스토리 스텝:', reconstructedSteps.length, '개');
+      
+      // 현재 에디터 코드와 비교하여 중복 방지
+      const currentJavaScript = currentState.editorCode.javascript.trim();
+      const currentCss = currentState.editorCode.css.trim();
+      const latestStep = reconstructedSteps[reconstructedSteps.length - 1];
+      
+      if (latestStep) {
+        // 정규화된 코드로 비교 (공백, 개행 정리)
+        const normalizedLatestJS = (latestStep?.javascript || '').trim();
+        const normalizedLatestCSS = (latestStep?.css || '').trim();
+        
+        // 이미 같은 코드가 로드되어 있으면 건너뜀
+        if (normalizedLatestJS !== currentJavaScript || normalizedLatestCSS !== currentCss) {
+          console.log('🔄 [loadSiteHistory] 최신 코드로 히스토리 복원');
+          
+          dispatch({ type: 'SET_RESTORING', payload: true }); // 복원 시작
+          dispatch({ type: 'CLEAR_CODE_HISTORY' });
+          
+          // 히스토리 스택에 버전들 추가
+          reconstructedSteps.forEach((step, index) => {
+            dispatch({ type: 'PUSH_CODE_HISTORY', payload: {
+              javascript: step.javascript,
+              css: step.css,
+              description: `${siteCode} 복원 ${index + 1}`,
+              isSuccessful: true
+            }});
+          });
+          
+          // 최신 코드를 에디터에 설정
+          dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'javascript', code: latestStep.javascript || '' } });
+          dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'css', code: latestStep.css || '' } });
+          console.log('✅ [loadSiteHistory] 코드 복원 완료');
+          dispatch({ type: 'SET_RESTORING', payload: false }); // 복원 완료
+        } else {
+          console.log('⚠️ [loadSiteHistory] 동일한 코드 - 복원 건너뜀');
+        }
+      }
+    } else {
+      console.log('📝 [loadSiteHistory] 코드 버전 없음 - 빈 히스토리로 초기화');
+      dispatch({ type: 'CLEAR_CODE_HISTORY' });
+      dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'javascript', code: '' } });
+      dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'css', code: '' } });
+    }
+  } catch (error) {
+    console.error('💥 [loadSiteHistory] 히스토리 로드 실패:', error);
+    throw error;
+  }
+};
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
@@ -523,85 +591,7 @@ export function AppProvider({ children }: AppProviderProps) {
         }
       }
 
-      // 코드 히스토리 복원 (중복 방지 로직 추가)
-      try {
-        console.log('🌐 [loadUserData] 코드 히스토리 로드 시작');
-        const currentSiteCode = await aiService.getCurrentSiteCode();
-        console.log('🌐 [loadUserData] 현재 사이트 코드:', currentSiteCode);
-        
-        if (currentSiteCode) {
-          // 모든 버전 가져오기
-          console.log('📝 [loadUserData] 서버에서 코드 버전 조회 중...');
-          const allVersions = await getAllVersions(currentSiteCode);
-          console.log('📝 [loadUserData] 서버 코드 버전:', allVersions.length, '개');
-          console.log('📝 [loadUserData] 버전 상세:', allVersions.map(v => ({ id: v.id, type: v.type, created_at: v.created_at })));
-          
-          if (allVersions.length > 0) {
-            // 버전들을 히스토리로 재구성
-            console.log('🔄 [loadUserData] 코드 히스토리 재구성 중...');
-            const reconstructedSteps = reconstructFromVersions(allVersions);
-            console.log('🔄 [loadUserData] 재구성된 히스토리 스텝:', reconstructedSteps.length, '개');
-            
-            // 현재 에디터 코드와 비교하여 중복 방지
-            const currentJavaScript = state.editorCode.javascript.trim();
-            const currentCss = state.editorCode.css.trim();
-            const latestStep = reconstructedSteps[reconstructedSteps.length - 1];
-            
-            // 정규화된 코드로 비교 (공백, 개행 정리)
-            const normalizedLatestJS = (latestStep?.javascript || '').trim();
-            const normalizedLatestCSS = (latestStep?.css || '').trim();
-            
-            // 이미 같은 코드가 로드되어 있으면 건너뜀
-            if (latestStep && 
-                (normalizedLatestJS !== currentJavaScript || normalizedLatestCSS !== currentCss)) {
-              
-              console.log('🔄 [loadUserData] 최신 코드 미리보기 - JS:', latestStep.javascript?.substring(0, 200) || 'empty');
-              console.log('🔄 [loadUserData] 최신 코드 미리보기 - CSS:', latestStep.css?.substring(0, 200) || 'empty');
-              console.log('🔍 [loadUserData] 현재 에디터 JS:', currentJavaScript.substring(0, 200) || 'empty');
-              console.log('🔍 [loadUserData] 현재 에디터 CSS:', currentCss.substring(0, 200) || 'empty');
-              
-              // 히스토리 스택이 초기 상태만 있는 경우에만 복원
-              if (state.codeHistoryStack.length <= 1 && 
-                  state.codeHistoryStack[0]?.javascript === '' && 
-                  state.codeHistoryStack[0]?.css === '') {
-                
-                console.log('🗑️ [loadUserData] 기존 초기 히스토리 스택 클리어');
-                dispatch({ type: 'SET_RESTORING', payload: true }); // 복원 시작
-                dispatch({ type: 'CLEAR_CODE_HISTORY' });
-                
-                console.log('📚 [loadUserData] 히스토리 스택에 버전들 추가 중...');
-                reconstructedSteps.forEach((step, index) => {
-                  dispatch({ type: 'PUSH_CODE_HISTORY', payload: {
-                    javascript: step.javascript,
-                    css: step.css,
-                    description: `서버 복원 ${index + 1}`,
-                    isSuccessful: true
-                  }});
-                });
-                
-                // 최신 코드를 에디터에 설정
-                console.log('✏️ [loadUserData] 최신 코드를 에디터에 적용');
-                console.log('🔍 [loadUserData] 복원할 CSS 전체:', latestStep.css);
-                dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'javascript', code: latestStep.javascript || '' } });
-                dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'css', code: latestStep.css || '' } });
-                console.log('✅ [loadUserData] 코드 복원 완료 - JS 길이:', latestStep.javascript?.length || 0, ', CSS 길이:', latestStep.css?.length || 0);
-                dispatch({ type: 'SET_RESTORING', payload: false }); // 복원 완료
-              } else {
-                console.log('⚠️ [loadUserData] 이미 히스토리가 존재함 - 복원 건너뜀');
-              }
-            } else {
-              console.log('⚠️ [loadUserData] 동일한 코드 - 복원 건너뜀');
-            }
-          } else {
-            console.log('📝 [loadUserData] 코드 버전 없음 - 히스토리 복원 건너뜀');
-          }
-        } else {
-          console.log('🌐 [loadUserData] 사이트 코드 없음 - 히스토리 복원 건너뜀');
-        }
-      } catch (error) {
-        console.error('💥 [loadUserData] 코드 버전 로드 실패:', error);
-        console.error('💥 [loadUserData] 코드 로드 스택:', error instanceof Error ? error.stack : 'No stack trace');
-      }
+      console.log('🌐 [loadUserData] 초기 로딩 완료 - 사이트 선택 시 히스토리가 로드됩니다');
 
     } catch (error) {
       console.error('사용자 데이터 로드 실패:', error);
@@ -687,6 +677,22 @@ export function AppProvider({ children }: AppProviderProps) {
     };
   }, []);
 
+  // 선택된 사이트 코드가 변경될 때 자동으로 히스토리 로드
+  useEffect(() => {
+    if (state.selectedSiteCode) {
+      const loadHistoryForSelectedSite = async () => {
+        try {
+          console.log('🎯 [AppContext] 선택된 사이트 변경됨, 히스토리 로드:', state.selectedSiteCode);
+          await loadSiteHistory(state.selectedSiteCode!, dispatch, state);
+        } catch (error) {
+          console.error('❌ [AppContext] 선택된 사이트 히스토리 로드 실패:', error);
+        }
+      };
+      
+      loadHistoryForSelectedSite();
+    }
+  }, [state.selectedSiteCode]);
+
   const actions = useMemo(() => ({
     setActiveTab: (tab: 'code' | 'chat' | 'user') => dispatch({ type: 'SET_ACTIVE_TAB', payload: tab }),
     setLoading: (loading: boolean) => dispatch({ type: 'SET_LOADING', payload: loading }),
@@ -695,6 +701,7 @@ export function AppProvider({ children }: AppProviderProps) {
     setRestoring: (restoring: boolean) => dispatch({ type: 'SET_RESTORING', payload: restoring }),
     setCreatingSnapshot: (creating: boolean) => dispatch({ type: 'SET_CREATING_SNAPSHOT', payload: creating }),
     setHasSnapshot: (hasSnapshot: boolean) => dispatch({ type: 'SET_HAS_SNAPSHOT', payload: hasSnapshot }),
+    setSelectedSiteCode: (siteCode: string | null) => dispatch({ type: 'SET_SELECTED_SITE_CODE', payload: siteCode }),
     setEditorCode: (language: 'javascript' | 'css', code: string) => dispatch({ type: 'SET_EDITOR_CODE', payload: { language, code } }),
     // 코드 변경 히스토리 관련 액션들 (브라우저 스타일)
     pushCodeHistory: (history: { 
@@ -724,7 +731,11 @@ export function AppProvider({ children }: AppProviderProps) {
     loadThreadsFromServer: (threads: ChatThread[]) => dispatch({ type: 'LOAD_THREADS_FROM_SERVER', payload: threads }),
     addServerThread: (thread: ChatThread) => dispatch({ type: 'ADD_SERVER_THREAD', payload: thread }),
     loadThreadMessages: (threadId: string, messages: ChatMessage[]) => dispatch({ type: 'LOAD_THREAD_MESSAGES', payload: { threadId, messages } }),
-  }), [dispatch]);
+    loadSiteHistory: async (siteCode: string) => {
+      // 선택된 사이트 설정만 하고, useEffect에서 자동으로 히스토리 로드
+      dispatch({ type: 'SET_SELECTED_SITE_CODE', payload: siteCode });
+    },
+  }), [dispatch, state]);
 
   const computed = useMemo(() => {
     const currentThread = state.currentThreadId ? state.chatThreads.find(thread => thread.id === state.currentThreadId) || null : null;

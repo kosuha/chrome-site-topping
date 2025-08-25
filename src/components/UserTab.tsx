@@ -1,4 +1,5 @@
 import { useAuth } from '../contexts/AuthContext'
+import { useAppContext } from '../contexts/AppContext'
 import { useState, useEffect } from 'react'
 import { SiteIntegrationService, Site } from '../services/siteIntegration'
 import styles from '../styles/UserTab.module.css'
@@ -6,6 +7,7 @@ import { Copy, Check, Plus, Loader2, AlertCircle, Globe, Trash2, RotateCw } from
 
 export default function UserTab() {
   const { user, loading, error, signInWithProvider, signOut } = useAuth()
+  const { actions } = useAppContext()
   const [currentDomain, setCurrentDomain] = useState<string>('')
   const [integrationScript, setIntegrationScript] = useState<string>('')
   const [connectedSites, setConnectedSites] = useState<Site[]>([])
@@ -122,10 +124,18 @@ export default function UserTab() {
       if (currentSite) {
         setSelectedSiteId(currentSite.id)
         await loadSiteScript(currentSite)
+        if (currentSite.site_code) {
+          console.log('🎯 [UserTab] 자동 선택된 사이트:', currentSite.site_code)
+          actions.setSelectedSiteCode(currentSite.site_code)
+        }
       } else if (sitesWithStatus.length > 0) {
         // 현재 도메인과 일치하는 사이트가 없으면 첫 번째 사이트 선택
         setSelectedSiteId(sitesWithStatus[0].id)
         await loadSiteScript(sitesWithStatus[0])
+        if (sitesWithStatus[0].site_code) {
+          console.log('🎯 [UserTab] 첫 번째 사이트 자동 선택:', sitesWithStatus[0].site_code)
+          actions.setSelectedSiteCode(sitesWithStatus[0].site_code)
+        }
       }
     } catch (err) {
       setSiteError(err instanceof Error ? err.message : '사이트 목록을 불러오는 중 오류가 발생했습니다.')
@@ -142,6 +152,12 @@ export default function UserTab() {
     const selectedSite = connectedSites?.find(site => site.id === siteId)
     if (selectedSite) {
       await loadSiteScript(selectedSite)
+      
+      // 선택된 사이트 코드 설정 (AppContext useEffect에서 자동으로 히스토리 로드됨)
+      if (selectedSite.site_code) {
+        console.log('🎯 [UserTab] 사이트 선택됨:', selectedSite.site_code)
+        actions.setSelectedSiteCode(selectedSite.site_code)
+      }
     }
   }
 

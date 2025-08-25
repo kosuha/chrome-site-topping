@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 import { useAppContext } from '../contexts/AppContext';
-import aiService from '../services/aiService';
 import { persistHistoryStep } from '../services/versioning';
 
 /**
@@ -35,7 +34,7 @@ export default function usePersistHistory() {
       }
 
       (async () => {
-        const siteCode = await aiService.getCurrentSiteCode();
+        const siteCode = state.selectedSiteCode;
         if (!siteCode) return;
         try {
           await persistHistoryStep({

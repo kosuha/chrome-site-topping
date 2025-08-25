@@ -58,29 +58,9 @@ export default function PanelHeader({}: PanelHeaderProps) {
       setDeploySuccess(false);
       setDeployFailed(false);
 
-      // 현재 탭 정보 가져오기
-      const tabInfo = await sendMessageToActiveTab({ type: 'GET_PAGE_INFO' });
-      
-      if (!tabInfo.success) {
-        console.error('탭 정보를 가져올 수 없습니다:', tabInfo.error);
-        setDeployFailed(true);
-        return;
-      }
-
-      const currentDomain = tabInfo.domain;
-      
-      // 현재 도메인에 해당하는 사이트 찾기
-      const sites = await siteService.getUserSites();
-      const currentSite = Array.isArray(sites) ? sites.find((site: any) => site.domain === currentDomain) : null;
-
-      if (!currentSite) {
-        console.error(`현재 도메인 ${currentDomain}이 등록되지 않았습니다.`);
-        setDeployFailed(true);
-        return;
-      }
-
-      if (!currentSite.site_code) {
-        console.error('사이트 코드가 없습니다.');
+      // 선택된 사이트 코드가 있는지 확인
+      if (!state.selectedSiteCode) {
+        alert('배포할 사이트를 선택해주세요.\n\n사용자 탭에서 사이트를 선택하세요.');
         setDeployFailed(true);
         return;
       }
@@ -89,13 +69,18 @@ export default function PanelHeader({}: PanelHeaderProps) {
       const cssContent = state.editorCode.css || '';
       const jsContent = state.editorCode.javascript || '';
 
+      console.log('🚀 [PanelHeader] 선택된 사이트로 배포:', state.selectedSiteCode);
+
       // 서버에 배포 (CSS와 JS 분리)
-      await siteService.deployScript(currentSite.site_code, cssContent, jsContent);
+      await siteService.deployScript(state.selectedSiteCode, cssContent, jsContent);
       
       setDeploySuccess(true);
+      console.log('✅ [PanelHeader] 배포 성공');
 
     } catch (error) {
-      console.error('배포 실패:', error);
+      console.error('❌ [PanelHeader] 배포 실패:', error);
+      const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
+      alert(`배포 실패: ${errorMessage}`);
       setDeployFailed(true);
     } finally {
       setIsDeploying(false);
