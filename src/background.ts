@@ -443,11 +443,15 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                                 return `${selectors} { ${properties} }`;
                             }
                             
-                            // 선택자 스코핑
+                            // 선택자 스코핑 - 애니메이션 관련은 특별 처리
                             const scopedSelectors = selectors.split(',').map(sel => {
                                 const s = sel.trim();
                                 if (s === '*' || s === 'html' || s === 'body') {
                                     return `${s}:not(#site-topping-root):not(#site-topping-root *)`;
+                                }
+                                // 애니메이션 관련 선택자는 더 관대하게 처리
+                                if (isAnimationSelector(s)) {
+                                    return `${s}:not(#site-topping-root *)`;
                                 }
                                 return `${s}:not(#site-topping-root *)`;
                             }).join(', ');
@@ -460,11 +464,37 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                     }
                 }
                 
-                // Preview manager (no-eval, operation-log rollback)
+                function isAnimationSelector(selector: string): boolean {
+                    const animationPatterns = [
+                        ':hover', ':focus', ':active', ':visited',
+                        ':before', ':after', '::before', '::after',
+                        '[data-', '[aria-',
+                        '.animate', '.transition', '.hover',
+                        '@keyframes', '@-webkit-keyframes'
+                    ];
+                    return animationPatterns.some(pattern => 
+                        selector.toLowerCase().includes(pattern.toLowerCase())
+                    );
+                }
+                
+                function preserveCSSVariables(css: string): string {
+                    const lines = css.split('\n');
+                    return lines.map(line => {
+                        // CSS 변수 정의를 전역으로 유지
+                        if (line.trim().startsWith('--') || line.includes('var(--')) {
+                            return line;
+                        }
+                        return line;
+                    }).join('\n');
+                }
+                
+                // Enhanced Preview manager with animation preservation and intelligent restore
                 const __preview = (() => {
                   const state: any = {
                     guard: false,
                     patched: false,
+                    // Enhanced baseline snapshot
+                    baselineSnapshot: null as any,
                     logs: {
                       addedNodes: new Set<Element>(),
                       attrChanges: [] as any[],
@@ -487,6 +517,122 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                     return false;
                   }
                   
+                  // Enhanced baseline snapshot capture
+                  function captureEnhancedBaseline() {
+                    try {
+                      const clone = document.body.cloneNode(true);
+                      const extInClone = (clone as HTMLElement).querySelector('#site-topping-root');
+                      if (extInClone) extInClone.remove();
+                      
+                      const headSigs = Array.from(document.head.children).map((el) => (el as HTMLElement).outerHTML);
+                      
+                      // Capture computed styles of key elements
+                      const computedStyles = new Map();
+                      const keyElements = document.querySelectorAll('body, html, [style], [class], [id]');
+                      keyElements.forEach(el => {
+                        if (el.id !== 'site-topping-root' && !el.closest('#site-topping-root')) {
+                          computedStyles.set(el, window.getComputedStyle(el));
+                        }
+                      });
+                      
+                      // Capture element attributes
+                      const elementAttributes = new Map();
+                      document.querySelectorAll('*').forEach(el => {
+                        if (el.id !== 'site-topping-root' && !el.closest('#site-topping-root')) {
+                          const attrs = new Map();
+                          for (const attr of el.attributes) {
+                            attrs.set(attr.name, attr.value);
+                          }
+                          if (attrs.size > 0) {
+                            elementAttributes.set(el, attrs);
+                          }
+                        }
+                      });
+                      
+                      state.baselineSnapshot = {
+                        bodyHTML: (clone as HTMLElement).innerHTML,
+                        scrollX: window.scrollX,
+                        scrollY: window.scrollY,
+                        headSigs,
+                        computedStyles,
+                        eventListeners: new Map(),
+                        elementAttributes,
+                      };
+                      
+                      console.log('[Site Topping] Enhanced baseline captured');
+                    } catch (e) {
+                      console.warn('[Site Topping] Failed to capture enhanced baseline:', e);
+                    }
+                  }
+                  
+                  // Intelligent restore strategy
+                  function shouldUseGentleRestore() {
+                    const hasAnimations = document.querySelectorAll('[style*="transition"], [style*="animation"], .animate, [class*="animate"]').length > 0;
+                    const hasComplexCSS = Array.from(document.styleSheets).some(sheet => {
+                      try {
+                        return Array.from(sheet.cssRules).some(rule => 
+                          rule.cssText.includes('@keyframes') || 
+                          rule.cssText.includes('transition') ||
+                          rule.cssText.includes('animation')
+                        );
+                      } catch {
+                        return false;
+                      }
+                    });
+                    return hasAnimations || hasComplexCSS;
+                  }
+                  
+                  // Animation state restoration
+                  function restoreAnimationStates() {
+                    try {
+                      // Force multiple reflows to ensure animations are properly initialized
+                      document.documentElement.offsetHeight;
+                      document.body.offsetHeight;
+                      
+                      // Trigger CSS animation restart for elements with animations
+                      const animatedElements = document.querySelectorAll('[style*="animation"], [style*="transition"], [class*="animate"]');
+                      animatedElements.forEach(el => {
+                        if (el.closest('#site-topping-root')) return;
+                        
+                        const htmlEl = el as HTMLElement;
+                        const computedStyle = window.getComputedStyle(htmlEl);
+                        
+                        // Force animation restart by temporarily disabling and re-enabling
+                        if (computedStyle.animationName !== 'none') {
+                          const originalDisplay = htmlEl.style.display;
+                          htmlEl.style.display = 'none';
+                          htmlEl.offsetHeight; // Force reflow
+                          htmlEl.style.display = originalDisplay;
+                        }
+                      });
+                      
+                      // Re-trigger hover states if mouse is over elements
+                      const elementUnderMouse = document.elementFromPoint(
+                        window.innerWidth / 2, 
+                        window.innerHeight / 2
+                      );
+                      
+                      if (elementUnderMouse && !elementUnderMouse.closest('#site-topping-root')) {
+                        // Dispatch mouse events to re-trigger hover states
+                        const mouseEnterEvent = new MouseEvent('mouseenter', { bubbles: true });
+                        const mouseOverEvent = new MouseEvent('mouseover', { bubbles: true });
+                        elementUnderMouse.dispatchEvent(mouseEnterEvent);
+                        elementUnderMouse.dispatchEvent(mouseOverEvent);
+                      }
+                      
+                      // Wait a bit then force another reflow
+                      setTimeout(() => {
+                        try {
+                          document.body.offsetHeight;
+                          window.dispatchEvent(new Event('resize'));
+                        } catch {}
+                      }, 50);
+                      
+                    } catch (e) {
+                      console.warn('[Site Topping] Failed to restore animation states:', e);
+                    }
+                  }
+                  
                   function patchIfNeeded(){
                     if (state.patched) return;
                     state.patched = true;
@@ -497,6 +643,10 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                     (Element.prototype as any).appendChild = function(node: any){
                       if (state.guard && node && node.nodeType === 1 && !shouldIgnoreAddedElement(node)) {
                         state.logs.addedNodes.add(node);
+                        // Mark element for easier cleanup
+                        if ((window as any).__siteTopping_previewActive) {
+                          (node as HTMLElement).setAttribute('data-site-topping-added', 'true');
+                        }
                       }
                       return o.appendChild.call(this, node);
                     };
@@ -504,6 +654,10 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                     (Element.prototype as any).insertBefore = function(node: any, ref: any){
                       if (state.guard && node && node.nodeType === 1 && !shouldIgnoreAddedElement(node)) {
                         state.logs.addedNodes.add(node);
+                        // Mark element for easier cleanup
+                        if ((window as any).__siteTopping_previewActive) {
+                          (node as HTMLElement).setAttribute('data-site-topping-added', 'true');
+                        }
                       }
                       return o.insertBefore.call(this, node, ref);
                     };
@@ -576,7 +730,7 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                       }
                       return o.removeProperty.call(this, prop);
                     };
-                    // addEventListener/removeEventListener
+                    // Enhanced addEventListener/removeEventListener with preview tracking
                     o.addEventListener = (EventTarget.prototype as any).addEventListener;
                     o.removeEventListener = (EventTarget.prototype as any).removeEventListener;
                     (EventTarget.prototype as any).addEventListener = function(type: string, listener: any, options?: any){
@@ -589,6 +743,19 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                         };
                         (wrapped as any).__st_orig = listener;
                       }
+                      
+                      // Enhanced preview tracking: only track listeners added during preview
+                      if (state.guard && (window as any).__siteTopping_previewActive) {
+                        const key = this;
+                        if (!(window as any).__siteTopping_addedListeners) {
+                          (window as any).__siteTopping_addedListeners = new Map();
+                        }
+                        if (!(window as any).__siteTopping_addedListeners.has(key)) {
+                          (window as any).__siteTopping_addedListeners.set(key, []);
+                        }
+                        (window as any).__siteTopping_addedListeners.get(key).push({ type, listener: wrapped, orig: listener, options });
+                      }
+                      
                       if (state.guard) {
                         state.logs.listeners.push({ target: this, type, listener: wrapped, orig: listener, options });
                       }
@@ -752,10 +919,20 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                   async function apply(cssCode: string, jsCode: string){
                     patchIfNeeded();
                     
+                    // Capture enhanced baseline if not exists
+                    if (!state.baselineSnapshot) {
+                      captureEnhancedBaseline();
+                    }
+                    
+                    // Set preview active flag
+                    (window as any).__siteTopping_previewActive = true;
+                    
                     // CSS
                     clearCss();
                     if (cssCode && cssCode.trim()) {
-                      const scoped = applyCSSScoping(cssCode);
+                      let scoped = applyCSSScoping(cssCode);
+                      // Preserve CSS variables
+                      scoped = preserveCSSVariables(scoped);
                       try {
                         if ('adoptedStyleSheets' in document && typeof (window as any).CSSStyleSheet !== 'undefined') {
                           const sheet = new (window as any).CSSStyleSheet();
@@ -810,11 +987,112 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                   }
                   
                   async function disable(){
+                    // Clear preview active flag
+                    (window as any).__siteTopping_previewActive = false;
+                    
+                    // Clean up enhanced event listeners
+                    cleanupEnhancedEventListeners();
+                    
                     clearCss();
                     clearJs();
-                    rollback();
+                    
+                    // Use intelligent restore strategy
+                    if (state.baselineSnapshot && shouldUseGentleRestore()) {
+                      performGentleRestore();
+                    } else {
+                      rollback();
+                    }
+                    
+                    // Restore animations
+                    restoreAnimationStates();
+                    
+                    // Restore scroll position
+                    if (state.baselineSnapshot) {
+                      window.scrollTo(state.baselineSnapshot.scrollX, state.baselineSnapshot.scrollY);
+                    }
+                    
                     unpatch();
+                    
+                    // Clear baseline for next session
+                    state.baselineSnapshot = null;
+                    
                     return { success: true, restored: true };
+                  }
+                  
+                  function cleanupEnhancedEventListeners() {
+                    try {
+                      if ((window as any).__siteTopping_addedListeners) {
+                        (window as any).__siteTopping_addedListeners.forEach((listeners: any[], element: any) => {
+                          listeners.forEach((desc: any) => {
+                            try {
+                              element.removeEventListener(desc.type, desc.listener, desc.options);
+                            } catch {}
+                          });
+                        });
+                        (window as any).__siteTopping_addedListeners.clear();
+                      }
+                    } catch (e) {
+                      console.warn('[Site Topping] Failed to cleanup enhanced event listeners:', e);
+                    }
+                  }
+                  
+                  function performGentleRestore() {
+                    if (!state.baselineSnapshot) return;
+                    
+                    try {
+                      // Remove elements that were added during preview
+                      const addedElements = document.querySelectorAll('[data-site-topping-added]');
+                      addedElements.forEach(el => el.remove());
+                      
+                      // Restore original attributes on modified elements
+                      state.baselineSnapshot.elementAttributes.forEach((attrs: Map<string, string>, element: Element) => {
+                        if (!element.isConnected) return;
+                        
+                        // Restore style attribute carefully
+                        const originalStyle = attrs.get('style') || '';
+                        if (element.getAttribute('style') !== originalStyle) {
+                          if (originalStyle) {
+                            element.setAttribute('style', originalStyle);
+                          } else {
+                            element.removeAttribute('style');
+                          }
+                        }
+                        
+                        // Restore class attribute
+                        const originalClass = attrs.get('class') || '';
+                        if (element.getAttribute('class') !== originalClass) {
+                          if (originalClass) {
+                            element.setAttribute('class', originalClass);
+                          } else {
+                            element.removeAttribute('class');
+                          }
+                        }
+                        
+                        // Restore other attributes
+                        attrs.forEach((value, name) => {
+                          if (name !== 'style' && name !== 'class') {
+                            if (element.getAttribute(name) !== value) {
+                              element.setAttribute(name, value);
+                            }
+                          }
+                        });
+                        
+                        // Remove attributes that weren't in the original
+                        const currentAttrs = new Set(Array.from(element.attributes).map(attr => attr.name));
+                        const originalAttrs = new Set(attrs.keys());
+                        
+                        for (const attrName of currentAttrs) {
+                          if (!originalAttrs.has(attrName) && !attrName.startsWith('data-site-topping')) {
+                            element.removeAttribute(attrName);
+                          }
+                        }
+                      });
+                      
+                      console.log('[Site Topping] Gentle restore completed');
+                    } catch (e) {
+                      console.warn('[Site Topping] Gentle restore failed, falling back to rollback:', e);
+                      rollback();
+                    }
                   }
                   
                   (window as any).__SiteToppingAPI = {
