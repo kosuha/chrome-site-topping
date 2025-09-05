@@ -9,6 +9,10 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   status?: 'pending' | 'in_progress' | 'completed' | 'failed'; // 메시지 상태
+  // 서버에서 전달되는 부가 정보
+  metadata?: any;
+  cost_usd?: number;
+  ai_model?: string;
   codeBlocks?: {
     language: string;
     code: string;

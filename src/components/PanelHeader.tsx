@@ -50,6 +50,8 @@ export default function PanelHeader({}: PanelHeaderProps) {
     actions.setActiveTab(tabName);
   };
 
+  // (헤더) 지갑 잔액 배지는 제거됨
+
   const handleDeploy = async () => {
     if (isDeploying) return;
 

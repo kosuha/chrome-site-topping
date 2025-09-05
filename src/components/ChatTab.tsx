@@ -4,7 +4,7 @@ import ThreadManager from './ThreadManager';
 import aiService from '../services/aiService';
 import domExtractor from '../services/domExtractor';
 import styles from '../styles/ChatTab.module.css';
-import { ArrowUp, Loader, Paperclip, X, List, CirclePlus } from 'lucide-react';
+import { ArrowUp, Loader, Paperclip, X, List, CirclePlus, Coins } from 'lucide-react';
 import MessageComponent from './MessageComponent';
 import useThreadSSE from '../hooks/useThreadSSE';
 import useImageAttachments from '../hooks/useImageAttachments';
@@ -13,6 +13,7 @@ export default function ChatTab() {
   const { state, actions, computed } = useAppContext();
   const [showThreads, setShowThreads] = useState(false);
   const [inputValue, setInputValue] = useState('');
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLDivElement>(null);
   const lastPickRef = useRef<{ selector: string; ts: number }>({ selector: '', ts: 0 });
@@ -91,6 +92,27 @@ export default function ChatTab() {
       state.chatThreads.find((t) => t.id === state.currentThreadId);
     }
   }, [computed.currentMessages, state.currentThreadId, state.chatThreads]);
+
+  // 지갑 잔액: 초기 로드 및 SSE 차감 후 새로고침 이벤트 수신
+  useEffect(() => {
+    let mounted = true;
+    const fetchWallet = async () => {
+      try {
+        const { default: tokenService } = await import('../services/tokenService');
+        const wallet = await tokenService.getWallet();
+        if (mounted) setWalletBalance(Number(wallet.balance_usd || 0));
+      } catch {
+        // ignore
+      }
+    };
+    fetchWallet();
+    const handler = () => fetchWallet();
+    window.addEventListener('SITE_TOPPING_REFRESH_WALLET', handler as EventListener);
+    return () => {
+      mounted = false;
+      window.removeEventListener('SITE_TOPPING_REFRESH_WALLET', handler as EventListener);
+    };
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -185,7 +207,7 @@ export default function ChatTab() {
 
       const siteCode = state.selectedSiteCode;
 
-      await aiService.sendChatMessage(
+  await aiService.sendChatMessage(
         userMessage.content,
         currentThreadId,
         {
@@ -209,7 +231,13 @@ export default function ChatTab() {
       const errorMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
-        content: `죄송합니다. AI 응답을 생성하는 중 오류가 발생했습니다: ${error instanceof Error ? error.message : '알 수 없는 오류'}`,
+        content: (() => {
+          const msg = error instanceof Error ? error.message : String(error)
+          if (msg.includes('402') || msg.includes('크레딧') || msg.includes('충전')) {
+            return '크레딧이 부족합니다. User 탭에서 로그인 후 잔액을 확인하고 충전하세요.'
+          }
+          return `죄송합니다. AI 응답을 생성하는 중 오류가 발생했습니다: ${msg}`
+        })(),
         timestamp: new Date(),
         status: 'failed',
       };
@@ -378,6 +406,12 @@ export default function ChatTab() {
                 </div>
 
                 <div className={styles.controlsRight}>
+                  {walletBalance !== null && (
+                    <div className={styles.walletBadge} title={`잔액: 크레딧 ${walletBalance.toFixed(3)}`}>
+                      <Coins size={16} />
+                      <span>{walletBalance.toFixed(2)}</span>
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={handleSendMessage}

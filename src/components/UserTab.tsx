@@ -3,7 +3,7 @@ import { useAppContext } from '../contexts/AppContext'
 import { useState, useEffect } from 'react'
 import { SiteIntegrationService, Site } from '../services/siteIntegration'
 import styles from '../styles/UserTab.module.css'
-import { Copy, Check, Plus, Loader2, AlertCircle, Globe, Trash2, RotateCw } from 'lucide-react'
+import { Copy, Check, Plus, Loader2, AlertCircle, Globe, Trash2, RotateCw, Coins } from 'lucide-react'
 
 export default function UserTab() {
   const { user, loading, error, signInWithProvider, signOut } = useAuth()
@@ -23,6 +23,18 @@ export default function UserTab() {
   const [isUpdatingDomain, setIsUpdatingDomain] = useState(false)
   const [copiedScript, setCopiedScript] = useState(false)
   const [isDeletingAccount, setIsDeletingAccount] = useState(false)
+  // Wallet state
+  const [walletLoading, setWalletLoading] = useState(false)
+  const [walletError, setWalletError] = useState<string>('')
+  const [walletBalance, setWalletBalance] = useState<number>(0)
+  const [walletTotalSpent, setWalletTotalSpent] = useState<number>(0)
+  const [recentTxs, setRecentTxs] = useState<Array<{
+    id: string;
+    type: 'debit' | 'credit';
+    amount_usd: number;
+    model_name?: string;
+    created_at: string;
+  }>>([])
 
   
   const siteService = SiteIntegrationService.getInstance()
@@ -76,6 +88,8 @@ export default function UserTab() {
     // 사용자가 로그인한 경우 연동된 사이트 목록 로드
     if (user) {
       loadConnectedSites();
+  // 지갑/거래 로드
+  fetchWalletAndTransactions();
     }
   }, [user])
 
@@ -141,6 +155,40 @@ export default function UserTab() {
       setSiteError(err instanceof Error ? err.message : '사이트 목록을 불러오는 중 오류가 발생했습니다.')
     }
   }
+
+  // Wallet fetcher
+  const fetchWalletAndTransactions = async () => {
+    if (!user) return;
+    setWalletError('')
+    setWalletLoading(true)
+    try {
+      const { default: tokenService } = await import('../services/tokenService')
+      const [wallet, txs] = await Promise.all([
+        tokenService.getWallet(),
+        tokenService.getTransactions(5)
+      ])
+      setWalletBalance(Number(wallet.balance_usd || 0))
+      setWalletTotalSpent(Number(wallet.total_spent_usd || 0))
+      setRecentTxs((txs || []).map(tx => ({
+        id: tx.id,
+        type: tx.type,
+        amount_usd: Number(tx.amount_usd || 0),
+        model_name: tx.model_name,
+        created_at: tx.created_at,
+      })))
+    } catch (e) {
+      setWalletError(e instanceof Error ? e.message : '크레딧 정보를 불러오지 못했습니다')
+    } finally {
+      setWalletLoading(false)
+    }
+  }
+
+  // SSE 차감 후 새로고침 이벤트
+  useEffect(() => {
+    const handler = () => fetchWalletAndTransactions();
+    window.addEventListener('SITE_TOPPING_REFRESH_WALLET', handler as EventListener)
+    return () => window.removeEventListener('SITE_TOPPING_REFRESH_WALLET', handler as EventListener)
+  }, [])
 
   const loadSiteScript = async (site: Site) => {
     // 사용자에게는 항상 HTML script 태그를 보여줌
@@ -419,6 +467,71 @@ export default function UserTab() {
                   '회원탈퇴'
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+
+        {/* 현재 도메인 정보 */}
+        {/* 크레딧 정보 */}
+        <div className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <h3 className={styles.sectionTitle}>크레딧</h3>
+          </div>
+          <div className={styles.card}>
+            {walletError && (
+              <div className={styles.errorAlert}>
+                <AlertCircle className={styles.alertIcon} />
+                <span className={styles.errorText}>{walletError}</span>
+              </div>
+            )}
+            <div className={styles.walletGrid}>
+              <div className={styles.walletCard}>
+                <div className={styles.walletLabel}><Coins size={16} /> 잔액</div>
+                <div className={styles.walletValue}>{walletLoading ? '...' : walletBalance.toFixed(2)}<span className={styles.walletUnit}> 크레딧</span></div>
+              </div>
+              <div className={styles.walletCard}>
+                <div className={styles.walletLabel}>누적 사용</div>
+                <div className={styles.walletValue}>{walletLoading ? '...' : walletTotalSpent.toFixed(2)}<span className={styles.walletUnit}> 크레딧</span></div>
+              </div>
+              <div className={styles.walletActions}>
+                <button
+                  onClick={fetchWalletAndTransactions}
+                  className={styles.refreshWalletButton}
+                  disabled={walletLoading}
+                  title="크레딧 정보 새로고침"
+                >
+                  {walletLoading ? <Loader2 className={styles.spinnerIcon} /> : <RotateCw size={14} />}
+                  새로고침
+                </button>
+              </div>
+            </div>
+
+            <div className={styles.walletTxSection}>
+              <div className={styles.walletTxHeader}>최근 거래</div>
+              {recentTxs.length === 0 ? (
+                <div className={styles.walletTxEmpty}>표시할 거래가 없습니다</div>
+              ) : (
+                <table className={styles.walletTxTable}>
+                  <thead>
+                    <tr>
+                      <th>일시</th>
+                      <th>유형</th>
+                      <th>금액</th>
+                      <th>모델</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentTxs.map(tx => (
+                      <tr key={tx.id}>
+                        <td>{new Date(tx.created_at).toLocaleString()}</td>
+                        <td className={tx.type === 'debit' ? styles.txDebit : styles.txCredit}>{tx.type === 'debit' ? '차감' : '충전'}</td>
+                        <td>{tx.type === 'debit' ? '-' : '+'}{Math.abs(tx.amount_usd).toFixed(3)} 크레딧</td>
+                        <td>{tx.model_name || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>

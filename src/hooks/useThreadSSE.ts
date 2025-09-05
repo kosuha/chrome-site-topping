@@ -70,12 +70,19 @@ export default function useThreadSSE() {
                   id: message_id,
                   content: message || base.content,
                   status: (status === 'error' ? 'failed' : (status as 'pending' | 'in_progress' | 'completed' | 'failed')),
-                  changes: extractedChanges || base.changes
+                  changes: extractedChanges || base.changes,
+                  metadata: metadata ?? base.metadata,
+                  cost_usd: (metadata && typeof metadata.token_usage?.total_cost_usd === 'number') ? metadata.token_usage.total_cost_usd : base.cost_usd,
+                  ai_model: (metadata && metadata.token_usage?.model_name) ? metadata.token_usage.model_name : base.ai_model
                 };
                 actions.updateMessageInThread(currentThreadId, base.id, updatedMessage);
 
                 if (status === 'completed' || status === 'error') {
                   actions.setAiLoading(false);
+                  // 비용 차감이 있었으면 지갑 잔액 새로고침 요청 이벤트 발생
+                  if (updatedMessage.cost_usd && updatedMessage.cost_usd > 0) {
+                    window.dispatchEvent(new Event('SITE_TOPPING_REFRESH_WALLET'));
+                  }
                 }
 
                 if (status === 'completed' && extractedChanges) {
@@ -117,10 +124,16 @@ export default function useThreadSSE() {
                     content: message,
                     timestamp: new Date(data.timestamp || Date.now()),
                     status: (status === 'error' ? 'failed' : (status as 'pending' | 'in_progress' | 'completed' | 'failed')),
-                    changes: extractedChanges || undefined
+                    changes: extractedChanges || undefined,
+                    metadata: metadata,
+                    cost_usd: (metadata && typeof metadata.token_usage?.total_cost_usd === 'number') ? metadata.token_usage.total_cost_usd : undefined,
+                    ai_model: (metadata && metadata.token_usage?.model_name) ? metadata.token_usage.model_name : undefined
                   };
                   actions.addMessageToThread(currentThreadId, newAiMessage);
                   actions.setAiLoading(false);
+                  if (newAiMessage.cost_usd && newAiMessage.cost_usd > 0) {
+                    window.dispatchEvent(new Event('SITE_TOPPING_REFRESH_WALLET'));
+                  }
 
                   if (extractedChanges) {
                     const currentCodeObj = {

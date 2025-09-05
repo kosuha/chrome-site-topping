@@ -1377,3 +1377,127 @@
   font-size: 12px;
   color: rgba(0, 0, 0, 0.6);
 }
+
+/* Wallet (Credit) Section */
+.errorAlert {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #ff6b6b;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.alertIcon {
+  width: 14px;
+  height: 14px;
+}
+
+.walletGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.walletCard {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.walletLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 12px;
+}
+
+.walletValue {
+  margin-top: 4px;
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.9);
+}
+
+.walletUnit {
+  margin-left: 4px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.walletActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.refreshWalletButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  background: rgba(59, 130, 246, 0.08);
+  color: rgba(29, 78, 216, 0.95);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.refreshWalletButton:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.6);
+}
+
+.refreshWalletButton:disabled {
+  opacity: 0.6;
+}
+
+.spinnerIcon {
+  width: 14px;
+  height: 14px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.walletTxSection {
+  margin-top: 12px;
+}
+
+.walletTxHeader {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+  margin-bottom: 6px;
+}
+
+.walletTxEmpty {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+  padding: 8px 0;
+}
+
+.walletTxTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.walletTxTable th,
+.walletTxTable td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  text-align: left;
+}
+
+.txDebit {
+  color: #ef4444;
+}
+
+.txCredit {
+  color: #22c55e;
+}

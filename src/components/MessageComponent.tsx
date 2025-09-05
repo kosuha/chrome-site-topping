@@ -110,7 +110,15 @@ export default function MessageComponent({ message }: { message: ChatMessage }) 
           </div>
         )}
 
-        <div className={`${styles.messageTime} ${styles[message.type]}`}>{formatTime(message.timestamp)}</div>
+        <div className={`${styles.messageTime} ${styles[message.type]}`}>
+          {formatTime(message.timestamp)}
+      {message.type === 'assistant' && (message.ai_model || typeof message.cost_usd === 'number') && (
+            <span style={{ marginLeft: 8, opacity: 0.8 }}>
+              {message.ai_model ? ` · ${message.ai_model}` : ''}
+        {typeof message.cost_usd === 'number' ? ` · ${Number(message.cost_usd).toFixed(4)} 크레딧` : ''}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );

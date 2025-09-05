@@ -165,6 +165,10 @@
     /* margin-bottom: 4px; */
 }
 
+.tabBar .tabBtn span {
+    line-height: 1;
+}
+
 /* 비활성 상태 */
 .tabBtn:disabled {
     opacity: 0.4;
