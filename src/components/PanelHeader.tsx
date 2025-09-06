@@ -1,12 +1,13 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import styles from '../styles/SidePanel.module.css';
 import { TABS } from '../utils/constants';
 import { useAppContext } from '../contexts/AppContext';
-import { BotMessageSquare, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigRight, CodeXml, Loader2, Check, X, SquareDashedMousePointer } from 'lucide-react';
-import { useDebounce } from '../hooks/useDebounce';
+import { BotMessageSquare, User, Eye, EyeClosed, Upload, ArrowBigLeft, ArrowBigRight, CodeXml, Check, X, SquareDashedMousePointer } from 'lucide-react';
 import { SiteIntegrationService } from '../services/siteIntegration';
-import { useSidePanelMessage } from '../hooks/useSidePanelMessage';
-import { applyCodeToPage, removeCodeFromPage, updateCodePreview } from '../services/codePreview';
+import { removeCodeFromPage } from '../services/codePreview';
+import { usePreviewLive } from '../hooks/usePreviewLive';
+import { useElementInspector } from '../hooks/useElementInspector';
+import { IconButton, Divider } from './header/HeaderButtons';
 
 interface PanelHeaderProps {
   // 사이드패널에서는 props 불필요
@@ -19,32 +20,11 @@ export default function PanelHeader({}: PanelHeaderProps) {
   const [deploySuccess, setDeploySuccess] = useState(false);
   const [deployFailed, setDeployFailed] = useState(false);
   const siteService = SiteIntegrationService.getInstance();
-  
-  // 사이드패널용 메시지 패싱  
-  const { sendMessageToActiveTab } = useSidePanelMessage();
-  
-  // 요소 인스펙터 상태
-  const [isInspectorActive, setIsInspectorActive] = useState(false);
-  
-  // 프리뷰 토글 상태 보호
+
+  const { active: isInspectorActive, toggle: toggleInspector, setActive: setInspectorActive } = useElementInspector();
   const [isToggling, setIsToggling] = useState(false);
-  
-  // 히스토리 이동 로딩 상태
   const [isNavigatingBack, setIsNavigatingBack] = useState(false);
   const [isNavigatingForward, setIsNavigatingForward] = useState(false);
-  
-  // 코드 변경을 단일 신호로 디바운스하여 중복 새로고침 방지
-  const combinedCode = `${state.editorCode.css || ''}\n/*__SEP__*/\n${state.editorCode.javascript || ''}`;
-  const debouncedCombined = useDebounce(combinedCode, 600);
-
-  // 프리뷰 초기화 진행 여부
-  const isInitializingRef = useRef(false);
-  // 프리뷰 활성 상태 가드 (레이스 방지)
-  const isPreviewActiveRef = useRef(false);
-
-  useEffect(() => {
-    isPreviewActiveRef.current = state.isPreviewMode;
-  }, [state.isPreviewMode]);
 
   const switchTab = (tabName: 'code' | 'chat' | 'user') => {
     actions.setActiveTab(tabName);
@@ -113,65 +93,15 @@ export default function PanelHeader({}: PanelHeaderProps) {
 
   // 요소 인스펙터 토글 함수
   const handleInspectorToggle = async () => {
-    try {
-      if (isInspectorActive) {
-        // 인스펙터 비활성화
-        await sendMessageToActiveTab({ type: 'DISABLE_ELEMENT_INSPECTOR' });
-        setIsInspectorActive(false);
-      } else {
-        // 인스펙터 활성화
-        const result = await sendMessageToActiveTab({ type: 'ENABLE_ELEMENT_INSPECTOR' });
-        if (result.success) {
-          setIsInspectorActive(true);
-        }
-      }
-    } catch (error) {
-      console.error('인스펙터 토글 실패:', error);
-    }
+    await toggleInspector();
   };
 
-  // 프리뷰 진입 시 라이브 적용
-  useEffect(() => {
-    if (!state.isPreviewMode) return;
-
-    const initPreview = async () => {
-      try {
-        isInitializingRef.current = true;
-        if (!isPreviewActiveRef.current) return;
-        await applyCodeToPage(state.editorCode.css || '', state.editorCode.javascript || '');
-      } catch (error) {
-        console.error('[PanelHeader] 프리뷰 초기 적용 실패:', error);
-      } finally {
-        isInitializingRef.current = false;
-      }
-    };
-
-    initPreview();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.isPreviewMode]);
-
-  // 프리뷰 중 코드 변경시: 실시간 업데이트 (스냅샷 유지)
-  useEffect(() => {
-    if (!state.isPreviewMode || isInitializingRef.current) return;
-
-    const run = async () => {
-      try {
-        if (!isPreviewActiveRef.current) return;
-        // 스냅샷 기반 실시간 업데이트 사용
-        await updateCodePreview(state.editorCode.css || '', state.editorCode.javascript || '');
-      } catch (error) {
-        console.error('[PanelHeader] 실시간 코드 업데이트 실패:', error);
-        // 실패 시 전체 재적용으로 폴백
-        try {
-          await applyCodeToPage(state.editorCode.css || '', state.editorCode.javascript || '');
-        } catch (fallbackError) {
-          console.error('[PanelHeader] 폴백 적용도 실패:', fallbackError);
-        }
-      }
-    };
-
-    run();
-  }, [debouncedCombined, state.isPreviewMode]);
+  // 프리뷰 실시간 업데이트 훅으로 대체
+  usePreviewLive({
+    isPreviewMode: state.isPreviewMode,
+    javascript: state.editorCode.javascript,
+    css: state.editorCode.css,
+  });
 
   // 배포 성공 아이콘을 2초 후 자동으로 숨김
   useEffect(() => {
@@ -196,32 +126,22 @@ export default function PanelHeader({}: PanelHeaderProps) {
 
   // Chrome extension 메시지와 window 메시지 리스너 설정
   useEffect(() => {
-    const lastPickRef = { selector: '', ts: 0 };
-
     // Chrome extension runtime 메시지 리스너
     const handleRuntimeMessage = (message: any) => {
       if (message.type === 'SITE_TOPPING_ELEMENT_PICKED') {
         const selector = message.selector;
         if (selector) {
-          const now = Date.now();
-          if (selector === lastPickRef.selector && now - lastPickRef.ts < 250) {
-            return;
-          }
-          lastPickRef.selector = selector;
-          lastPickRef.ts = now;
           // 단일 브로드캐스트: 각 탭은 자신이 활성일 때만 처리
           window.postMessage({ type: 'SITE_TOPPING_ELEMENT_PICKED', selector }, '*');
-          setIsInspectorActive(false);
+          setInspectorActive(false);
         }
       } else if (message.type === 'SITE_TOPPING_PICKER_STOP') {
-        setIsInspectorActive(false);
+        setInspectorActive(false);
       }
     };
 
     const handleWindowMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'SITE_TOPPING_PICKER_STOP') {
-        setIsInspectorActive(false);
-      }
+  if (event.data?.type === 'SITE_TOPPING_PICKER_STOP') setInspectorActive(false);
     };
 
     chrome.runtime.onMessage.addListener(handleRuntimeMessage);
@@ -236,91 +156,71 @@ export default function PanelHeader({}: PanelHeaderProps) {
   return (
     <div className={styles.panelHeader}>
       <div className={styles.tabBar}>
-        <button 
-          className={`${styles.tabBtn} ${state.isPreviewMode ? styles.activePreview : ''} ${isToggling ? styles.loading : ''}`}
+        <IconButton
+          active={state.isPreviewMode}
+          loading={isToggling}
           onClick={handlePreviewToggle}
-          title={isToggling ? "처리 중..." : (state.isPreviewMode ? "미리보기 숨기기" : "미리보기 보기")}
-          disabled={isToggling}
+          title={isToggling ? '처리 중...' : (state.isPreviewMode ? '미리보기 숨기기' : '미리보기 보기')}
+          className={state.isPreviewMode ? styles.activePreview : ''}
         >
-          {isToggling ? (
-            <Loader2 size={24} className={styles.spinner} />
-          ) : (
-            state.isPreviewMode ? <Eye size={24} /> : <EyeClosed size={24} />
-          )}
-        </button>
-        <button 
-          className={`${styles.tabBtn} ${isDeploying ? styles.loading : ''}`}
+          {state.isPreviewMode ? <Eye size={24} /> : <EyeClosed size={24} />}
+        </IconButton>
+        <IconButton
+          loading={isDeploying}
           onClick={handleDeploy}
-          disabled={isDeploying}
-          title={isDeploying ? "배포 중..." : "배포"}
+          title={isDeploying ? '배포 중...' : '배포'}
         >
-          {deploySuccess ? (
-            <Check size={24} className={styles.successCheck} />
-          ) : deployFailed ? (
-            <X size={24} className={styles.failedX} />
-          ) : (
-            <Upload size={24} />
-          )}
-        </button>
+          {deploySuccess ? <Check size={24} className={styles.successCheck} /> : deployFailed ? <X size={24} className={styles.failedX} /> : <Upload size={24} />}
+        </IconButton>
 
-        <button 
-          className={`${styles.tabBtn} ${isInspectorActive ? styles.active : ''}`}
+        <IconButton
+          active={isInspectorActive}
           onClick={handleInspectorToggle}
-          title={isInspectorActive ? "요소 선택 종료" : "요소 선택"}
+          title={isInspectorActive ? '요소 선택 종료' : '요소 선택'}
         >
           <SquareDashedMousePointer size={24} />
-        </button>
+        </IconButton>
 
         {/* 전역 히스토리 제어 버튼 */}
-        <button
-          className={`${styles.tabBtn} ${isNavigatingBack ? styles.loading : ''}`}
+        <IconButton
+          loading={isNavigatingBack}
+          disabled={state.currentHistoryIndex <= 0 || isNavigatingBack || isNavigatingForward}
           onClick={async () => {
             if (isNavigatingBack || isNavigatingForward) return;
             setIsNavigatingBack(true);
             try {
               actions.goBackHistory();
-              // 짧은 딜레이로 시각적 피드백 제공
-              await new Promise(resolve => setTimeout(resolve, 500));
+              await new Promise((r) => setTimeout(r, 500));
             } finally {
               setIsNavigatingBack(false);
             }
           }}
-          disabled={state.currentHistoryIndex <= 0 || isNavigatingBack || isNavigatingForward}
-          title={isNavigatingBack ? "이동 중..." : "코드 변경 이전으로"}
+          title={isNavigatingBack ? '이동 중...' : '코드 변경 이전으로'}
         >
-          {isNavigatingBack ? (
-            <Loader2 size={24} className={styles.spinner} />
-          ) : (
-            <ArrowBigLeft size={24} />
-          )}
-        </button>
-        <button
-          className={styles.tabBtn}
+          <ArrowBigLeft size={24} />
+        </IconButton>
+        <IconButton
+          loading={isNavigatingForward}
+          disabled={state.currentHistoryIndex >= state.codeHistoryStack.length - 1 || isNavigatingBack || isNavigatingForward}
           onClick={async () => {
             if (isNavigatingBack || isNavigatingForward) return;
             setIsNavigatingForward(true);
             try {
               actions.goForwardHistory();
-              // 짧은 딜레이로 시각적 피드백 제공
-              await new Promise(resolve => setTimeout(resolve, 500));
+              await new Promise((r) => setTimeout(r, 500));
             } finally {
               setIsNavigatingForward(false);
             }
           }}
-          disabled={state.currentHistoryIndex >= state.codeHistoryStack.length - 1 || isNavigatingBack || isNavigatingForward}
-          title={isNavigatingForward ? "이동 중..." : "코드 변경 이후로"}
+          title={isNavigatingForward ? '이동 중...' : '코드 변경 이후로'}
         >
-          {isNavigatingForward ? (
-            <Loader2 size={24} className={styles.spinner} />
-          ) : (
-            <ArrowBigRight size={24} />
-          )}
-        </button>
+          <ArrowBigRight size={24} />
+        </IconButton>
       </div>
 
       <div className={styles.tabBar}>
         {/* divider */}
-        <div className={styles.divider}></div>
+  <Divider />
         <button 
           className={`${styles.tabBtn} ${activeTab === TABS.CHAT ? styles.active : ''}`}
           onClick={() => switchTab(TABS.CHAT)}

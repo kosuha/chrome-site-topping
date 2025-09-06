@@ -8,12 +8,13 @@ import { ArrowUp, Loader, Paperclip, X, List, CirclePlus, Coins } from 'lucide-r
 import MessageComponent from './MessageComponent';
 import useThreadSSE from '../hooks/useThreadSSE';
 import useImageAttachments from '../hooks/useImageAttachments';
+import { useWalletBalance } from '../hooks/useWalletBalance';
 
 export default function ChatTab() {
   const { state, actions, computed } = useAppContext();
   const [showThreads, setShowThreads] = useState(false);
   const [inputValue, setInputValue] = useState('');
-  const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  const walletBalance = useWalletBalance();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLDivElement>(null);
   const lastPickRef = useRef<{ selector: string; ts: number }>({ selector: '', ts: 0 });
@@ -86,33 +87,7 @@ export default function ChatTab() {
     handleDrop,
   } = useImageAttachments();
 
-  // 디버깅용: computed.currentMessages 변경 추적
-  useEffect(() => {
-    if (state.currentThreadId) {
-      state.chatThreads.find((t) => t.id === state.currentThreadId);
-    }
-  }, [computed.currentMessages, state.currentThreadId, state.chatThreads]);
-
-  // 지갑 잔액: 초기 로드 및 SSE 차감 후 새로고침 이벤트 수신
-  useEffect(() => {
-    let mounted = true;
-    const fetchWallet = async () => {
-      try {
-        const { default: tokenService } = await import('../services/tokenService');
-        const wallet = await tokenService.getWallet();
-        if (mounted) setWalletBalance(Number(wallet.balance_usd || 0));
-      } catch {
-        // ignore
-      }
-    };
-    fetchWallet();
-    const handler = () => fetchWallet();
-    window.addEventListener('SITE_TOPPING_REFRESH_WALLET', handler as EventListener);
-    return () => {
-      mounted = false;
-      window.removeEventListener('SITE_TOPPING_REFRESH_WALLET', handler as EventListener);
-    };
-  }, []);
+  // 디버깅용 의존성 최소화 유지: 필요 시 콘솔에서 확인만
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -139,7 +114,7 @@ export default function ChatTab() {
       }
     }
 
-    if (!currentThreadId || currentThreadId.trim() === '') {
+  if (!currentThreadId || currentThreadId.trim() === '') {
       try {
         const response = await aiService.createThread();
         if (response.status === 'success') {

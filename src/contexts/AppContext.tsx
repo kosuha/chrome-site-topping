@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useReducer, ReactNode, useMemo, useEffect, useRef } from 'react';
 import { aiService } from '../services/aiService';
-import { getAllVersions, reconstructFromVersions } from '../services/versioning';
 import { supabase } from '../services/supabase';
+import { loadSiteHistoryHelper } from '../services/siteHistory';
 
 export interface ChatMessage {
   id: string;
@@ -434,61 +434,53 @@ interface AppContextType {
   };
 }
 
-// 선택된 사이트의 히스토리를 로드하는 함수
+// 선택된 사이트의 히스토리를 로드하는 함수 (헬퍼 사용)
 const loadSiteHistory = async (siteCode: string, dispatch: React.Dispatch<AppAction>, currentState: AppState) => {
   try {
     console.log('📝 [loadSiteHistory] 서버에서 코드 버전 조회 중...', siteCode);
-    const allVersions = await getAllVersions(siteCode);
-    console.log('📝 [loadSiteHistory] 서버 코드 버전:', allVersions.length, '개');
-    
-    if (allVersions.length > 0) {
-      // 버전들을 히스토리로 재구성
-      console.log('🔄 [loadSiteHistory] 코드 히스토리 재구성 중...');
-      const reconstructedSteps = reconstructFromVersions(allVersions);
-      console.log('🔄 [loadSiteHistory] 재구성된 히스토리 스텝:', reconstructedSteps.length, '개');
-      
-      // 현재 에디터 코드와 비교하여 중복 방지
-      const currentJavaScript = currentState.editorCode.javascript.trim();
-      const currentCss = currentState.editorCode.css.trim();
-      const latestStep = reconstructedSteps[reconstructedSteps.length - 1];
-      
-      if (latestStep) {
-        // 정규화된 코드로 비교 (공백, 개행 정리)
-        const normalizedLatestJS = (latestStep?.javascript || '').trim();
-        const normalizedLatestCSS = (latestStep?.css || '').trim();
-        
-        // 이미 같은 코드가 로드되어 있으면 건너뜀
-        if (normalizedLatestJS !== currentJavaScript || normalizedLatestCSS !== currentCss) {
-          console.log('🔄 [loadSiteHistory] 최신 코드로 히스토리 복원');
-          
-          dispatch({ type: 'SET_RESTORING', payload: true }); // 복원 시작
-          dispatch({ type: 'CLEAR_CODE_HISTORY' });
-          
-          // 히스토리 스택에 버전들 추가
-          reconstructedSteps.forEach((step, index) => {
-            dispatch({ type: 'PUSH_CODE_HISTORY', payload: {
-              javascript: step.javascript,
-              css: step.css,
-              description: `${siteCode} 복원 ${index + 1}`,
-              isSuccessful: true
-            }});
-          });
-          
-          // 최신 코드를 에디터에 설정
-          dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'javascript', code: latestStep.javascript || '' } });
-          dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'css', code: latestStep.css || '' } });
-          console.log('✅ [loadSiteHistory] 코드 복원 완료');
-          dispatch({ type: 'SET_RESTORING', payload: false }); // 복원 완료
-        } else {
-          console.log('⚠️ [loadSiteHistory] 동일한 코드 - 복원 건너뜀');
-        }
-      }
-    } else {
+    const { steps: reconstructedSteps, latest: latestStep } = await loadSiteHistoryHelper(siteCode);
+    console.log('🔄 [loadSiteHistory] 재구성된 히스토리 스텝:', reconstructedSteps.length, '개');
+
+    const currentJavaScript = currentState.editorCode.javascript.trim();
+    const currentCss = currentState.editorCode.css.trim();
+
+    if (reconstructedSteps.length === 0) {
       console.log('📝 [loadSiteHistory] 코드 버전 없음 - 빈 히스토리로 초기화');
       dispatch({ type: 'CLEAR_CODE_HISTORY' });
       dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'javascript', code: '' } });
       dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'css', code: '' } });
+      return;
     }
+
+    if (!latestStep) return;
+    const normalizedLatestJS = (latestStep.javascript || '').trim();
+    const normalizedLatestCSS = (latestStep.css || '').trim();
+
+    if (normalizedLatestJS === currentJavaScript && normalizedLatestCSS === currentCss) {
+      console.log('⚠️ [loadSiteHistory] 동일한 코드 - 복원 건너뜀');
+      return;
+    }
+
+    console.log('🔄 [loadSiteHistory] 최신 코드로 히스토리 복원');
+    dispatch({ type: 'SET_RESTORING', payload: true });
+    dispatch({ type: 'CLEAR_CODE_HISTORY' });
+
+    reconstructedSteps.forEach((step, index) => {
+      dispatch({
+        type: 'PUSH_CODE_HISTORY',
+        payload: {
+          javascript: step.javascript,
+          css: step.css,
+          description: `${siteCode} 복원 ${index + 1}`,
+          isSuccessful: true,
+        },
+      });
+    });
+
+    dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'javascript', code: latestStep.javascript || '' } });
+    dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'css', code: latestStep.css || '' } });
+    console.log('✅ [loadSiteHistory] 코드 복원 완료');
+    dispatch({ type: 'SET_RESTORING', payload: false });
   } catch (error) {
     console.error('💥 [loadSiteHistory] 히스토리 로드 실패:', error);
     throw error;
