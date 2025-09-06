@@ -85,7 +85,7 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
       if (response.status === 'success' && response.data?.messages) {
         
         // 서버 메시지를 ChatMessage 형식으로 변환
-        const convertedMessages = response.data.messages.map((msg, _) => {
+  const convertedMessages = response.data.messages.map((msg, _) => {
           
           const images: string[] | undefined = (() => {
             try {
@@ -134,6 +134,30 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
               }
               return undefined;
             })(),
+            // 비용/모델 정보 복원 (서버 필드 우선)
+            cost_usd: (typeof (msg as any).cost_usd === 'number'
+              ? (msg as any).cost_usd
+              : (() => {
+                  try {
+                    const meta = (msg as any).metadata;
+                    const m = typeof meta === 'string' ? JSON.parse(meta) : meta;
+                    const cost = m?.token_usage?.total_cost_usd;
+                    return typeof cost === 'number' ? cost : undefined;
+                  } catch {
+                    return undefined;
+                  }
+                })()),
+            ai_model: ((msg as any).ai_model
+              ? (msg as any).ai_model
+              : (() => {
+                  try {
+                    const meta = (msg as any).metadata;
+                    const m = typeof meta === 'string' ? JSON.parse(meta) : meta;
+                    return m?.token_usage?.model_name || undefined;
+                  } catch {
+                    return undefined;
+                  }
+                })()),
             images,
           };
           return converted;

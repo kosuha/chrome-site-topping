@@ -581,6 +581,29 @@ export function AppProvider({ children }: AppProviderProps) {
                   timestamp: new Date(msg.created_at),
                   status: (serverStatus === 'error' ? 'failed' : serverStatus) as 'pending' | 'in_progress' | 'completed' | 'failed',
                   changes,
+                  cost_usd: (typeof (msg as any).cost_usd === 'number'
+                    ? (msg as any).cost_usd
+                    : (() => {
+                        try {
+                          const meta = (msg as any).metadata;
+                          const m = typeof meta === 'string' ? JSON.parse(meta) : meta;
+                          const cost = m?.token_usage?.total_cost_usd;
+                          return typeof cost === 'number' ? cost : undefined;
+                        } catch {
+                          return undefined;
+                        }
+                      })()),
+                  ai_model: ((msg as any).ai_model
+                    ? (msg as any).ai_model
+                    : (() => {
+                        try {
+                          const meta = (msg as any).metadata;
+                          const m = typeof meta === 'string' ? JSON.parse(meta) : meta;
+                          return m?.token_usage?.model_name || undefined;
+                        } catch {
+                          return undefined;
+                        }
+                      })()),
                   images,
                 } as ChatMessage;
               });

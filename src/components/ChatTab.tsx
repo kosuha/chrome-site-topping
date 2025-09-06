@@ -5,6 +5,7 @@ import aiService from '../services/aiService';
 import domExtractor from '../services/domExtractor';
 import styles from '../styles/ChatTab.module.css';
 import { ArrowUp, Loader, Paperclip, X, List, CirclePlus, Coins, Lock } from 'lucide-react';
+import { AI_MODELS, DEFAULT_AI_MODEL, LOCAL_STORAGE_KEYS, type AIModelKey } from '../config/aiModels';
 import MessageComponent from './MessageComponent';
 import useThreadSSE from '../hooks/useThreadSSE';
 import useImageAttachments from '../hooks/useImageAttachments';
@@ -16,6 +17,8 @@ export default function ChatTab() {
   const { state, actions, computed } = useAppContext();
   const [showThreads, setShowThreads] = useState(false);
   const [inputValue, setInputValue] = useState('');
+  // AI 모델 선택 상태 + 최근 사용 모델 복원
+  const [aiModel, setAiModel] = useState<AIModelKey>(DEFAULT_AI_MODEL);
   const walletBalance = useWalletBalance();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLDivElement>(null);
@@ -75,6 +78,19 @@ export default function ChatTab() {
 
   // SSE 연결 훅
   useThreadSSE();
+
+  // 최근 사용 모델 복원
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_KEYS.LAST_AI_MODEL);
+      if (saved && (saved in AI_MODELS)) {
+        setAiModel(saved as AIModelKey);
+      } else {
+        // 예전 값이 'auto'인 경우 등 안전하게 기본값으로
+        setAiModel(DEFAULT_AI_MODEL);
+      }
+    } catch {}
+  }, []);
 
   // 이미지 첨부/드래그 앤 드롭 훅
   const {
@@ -169,7 +185,9 @@ export default function ChatTab() {
       return;
     }
 
-    actions.addMessageToThread(currentThreadId, userMessage);
+  actions.addMessageToThread(currentThreadId, userMessage);
+  // 최근 사용 모델 저장
+  try { localStorage.setItem(LOCAL_STORAGE_KEYS.LAST_AI_MODEL, aiModel); } catch {}
     setInputValue('');
     setAttachedImages([]);
     actions.setAiLoading(true);
@@ -207,6 +225,8 @@ export default function ChatTab() {
           pageUrl: window.location.href,
           domInfo: domExtractor.extractPageDOM(),
           images: attachedImages.length > 0 ? attachedImages : undefined,
+          // 사용자가 선택한 AI 모델을 서버로 전달
+          ai_model_preferred: aiModel,
         },
         siteCode || undefined,
         false,
@@ -404,6 +424,23 @@ export default function ChatTab() {
                     >
                       <Paperclip size={16} />
                     </button>
+                  </div>
+                  {/* 모델 선택 드롭다운 */}
+                  <div className={styles.modelSelectContainer} title="AI 모델 선택">
+                    <select
+                      className={styles.modelSelect}
+                      value={aiModel}
+                      onChange={(e) => {
+                        const next = e.target.value as AIModelKey;
+                        setAiModel(next);
+                        try { localStorage.setItem(LOCAL_STORAGE_KEYS.LAST_AI_MODEL, next); } catch {}
+                      }}
+                      disabled={!isSubscribed || state.isAiLoading}
+                    >
+                      {Object.entries(AI_MODELS).map(([key, { label }]) => (
+                        <option key={key} value={key}>{label}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
