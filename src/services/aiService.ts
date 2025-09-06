@@ -337,6 +337,23 @@ class AIService {
     return await this.makeRequest<GetThreadMessagesResponse>(`/messages/${threadId}`);
   }
 
+  // 지원되는 AI 모델 목록 조회
+  async getSupportedModels(): Promise<{
+    status: 'success' | 'error';
+    data?: { supported_models: string[]; pricing_info?: Record<string, any> };
+    message?: string;
+  }> {
+    // 서버 라우터: membership_router.get_model_pricing => /api/v1/membership/pricing/models
+    // 공개 엔드포인트이므로 인증 없이 호출합니다.
+    const url = `${this.baseUrl}/api/v1/membership/pricing/models`;
+    const resp = await fetch(url, { method: 'GET' });
+    if (!resp.ok) {
+      // 실패 시에도 상위에서 폴백을 사용하므로 간단한 에러 객체 반환
+      return { status: 'error', message: `HTTP ${resp.status}` } as any;
+    }
+    return await resp.json();
+  }
+
   // 현재 도메인의 사이트 코드 가져오기 (배포용)
   async getCurrentSiteCode(): Promise<string | null> {
     try {

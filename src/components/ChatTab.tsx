@@ -5,7 +5,7 @@ import aiService from '../services/aiService';
 import domExtractor from '../services/domExtractor';
 import styles from '../styles/ChatTab.module.css';
 import { ArrowUp, Loader, Paperclip, X, List, CirclePlus, Coins, Lock } from 'lucide-react';
-import { AI_MODELS, DEFAULT_AI_MODEL, LOCAL_STORAGE_KEYS, type AIModelKey } from '../config/aiModels';
+import { AI_MODELS as FALLBACK_AI_MODELS, DEFAULT_AI_MODEL, LOCAL_STORAGE_KEYS, type AIModelKey } from '../config/aiModels';
 import MessageComponent from './MessageComponent';
 import useThreadSSE from '../hooks/useThreadSSE';
 import useImageAttachments from '../hooks/useImageAttachments';
@@ -17,7 +17,8 @@ export default function ChatTab() {
   const { state, actions, computed } = useAppContext();
   const [showThreads, setShowThreads] = useState(false);
   const [inputValue, setInputValue] = useState('');
-  // AI 모델 선택 상태 + 최근 사용 모델 복원
+  // AI 모델 목록(서버 동적 + 폴백)과 선택 상태
+  const [availableModels, setAvailableModels] = useState<Record<AIModelKey, { label: string }>>(FALLBACK_AI_MODELS);
   const [aiModel, setAiModel] = useState<AIModelKey>(DEFAULT_AI_MODEL);
   const walletBalance = useWalletBalance();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -79,18 +80,52 @@ export default function ChatTab() {
   // SSE 연결 훅
   useThreadSSE();
 
-  // 최근 사용 모델 복원
+  // 모델 목록 로드 + 최근 사용 모델 복원
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(LOCAL_STORAGE_KEYS.LAST_AI_MODEL);
-      if (saved && (saved in AI_MODELS)) {
-        setAiModel(saved as AIModelKey);
-      } else {
-        // 예전 값이 'auto'인 경우 등 안전하게 기본값으로
+    let cancelled = false;
+
+    // 미구독 상태면 네트워크 호출 스킵, 로컬 복원/폴백만 적용
+    if (!isSubscribed) {
+      try {
+        const saved = localStorage.getItem(LOCAL_STORAGE_KEYS.LAST_AI_MODEL);
+        const keys = Object.keys(availableModels || FALLBACK_AI_MODELS);
+        const baseline = keys.includes(DEFAULT_AI_MODEL) ? DEFAULT_AI_MODEL : (keys[0] || DEFAULT_AI_MODEL);
+        setAiModel(saved && keys.includes(saved) ? saved : baseline);
+      } catch {
         setAiModel(DEFAULT_AI_MODEL);
       }
-    } catch {}
-  }, []);
+      return () => { cancelled = true; };
+    }
+
+    (async () => {
+      try {
+        const resp = await aiService.getSupportedModels();
+        const list = resp?.data?.supported_models || [];
+        let nextModels = availableModels;
+        if (Array.isArray(list) && list.length > 0) {
+          const mapped: Record<AIModelKey, { label: string }> = {};
+          for (const key of list) mapped[key] = { label: key };
+          nextModels = mapped;
+          if (!cancelled) setAvailableModels(mapped);
+        }
+
+        // 로컬 스토리지 복원 (nextModels 기준)
+        try {
+          const saved = localStorage.getItem(LOCAL_STORAGE_KEYS.LAST_AI_MODEL);
+          const keys = Object.keys(nextModels || FALLBACK_AI_MODELS);
+          const baseline = keys.includes(DEFAULT_AI_MODEL) ? DEFAULT_AI_MODEL : (keys[0] || DEFAULT_AI_MODEL);
+          if (saved && keys.includes(saved)) {
+            if (!cancelled) setAiModel(saved);
+          } else {
+            if (!cancelled) setAiModel(baseline);
+          }
+        } catch {}
+      } catch {
+        // 무시 (폴백 사용)
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isSubscribed]);
 
   // 이미지 첨부/드래그 앤 드롭 훅
   const {
@@ -437,7 +472,7 @@ export default function ChatTab() {
                       }}
                       disabled={!isSubscribed || state.isAiLoading}
                     >
-                      {Object.entries(AI_MODELS).map(([key, { label }]) => (
+                      {Object.entries(availableModels).map(([key, { label }]) => (
                         <option key={key} value={key}>{label}</option>
                       ))}
                     </select>
