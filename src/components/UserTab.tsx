@@ -3,11 +3,13 @@ import { useAppContext } from '../contexts/AppContext'
 import { useState, useEffect } from 'react'
 import { SiteIntegrationService, Site } from '../services/siteIntegration'
 import styles from '../styles/UserTab.module.css'
-import { Copy, Check, Plus, Loader2, AlertCircle, Globe, Trash2, RotateCw, Coins } from 'lucide-react'
+import { Copy, Check, Plus, Loader2, AlertCircle, Globe, Trash2, RotateCw, Coins, Crown } from 'lucide-react'
+import useMembership from '../hooks/useMembership'
 
 export default function UserTab() {
   const { user, loading, error, signInWithProvider, signOut } = useAuth()
   const { actions } = useAppContext()
+  const { status: membership, isSubscribed, loading: membershipLoading, error: membershipError, refresh: refreshMembership } = useMembership()
   const [currentDomain, setCurrentDomain] = useState<string>('')
   const [integrationScript, setIntegrationScript] = useState<string>('')
   const [connectedSites, setConnectedSites] = useState<Site[]>([])
@@ -468,6 +470,73 @@ export default function UserTab() {
                 )}
               </button>
             </div>
+          </div>
+        </div>
+
+        {/* 멤버십 상태 섹션 */}
+        <div className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <h3 className={styles.sectionTitle}>멤버십</h3>
+          </div>
+          <div className={styles.card}>
+            {membershipError && (
+              <div className={styles.errorAlert}>
+                <AlertCircle className={styles.alertIcon} />
+                <span className={styles.errorText}>{membershipError}</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Crown size={18} style={{ color: isSubscribed ? '#fbbf24' : '#9ca3af' }} />
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>
+                    {membershipLoading ? '상태 불러오는 중...' : (isSubscribed ? '구독 활성화' : '무료 플랜')}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#666' }}>
+                    {membershipLoading ? '' : (() => {
+                      if (!membership) return '로그인 상태에서 확인됩니다.';
+                      if (membership.is_expired) return '만료됨';
+                      if (membership.expires_at) {
+                        const dd = membership.days_remaining ?? null;
+                        const d = new Date(membership.expires_at);
+                        return `만료일: ${isNaN(d.getTime()) ? membership.expires_at : d.toLocaleDateString()}${dd !== null ? ` (D-${dd})` : ''}`;
+                      }
+                      return '제한 없음';
+                    })()}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  onClick={() => {
+                    const url = import.meta.env.VITE_SUBSCRIBE_URL as string | undefined;
+                    if (url) {
+                      window.open(url, '_blank');
+                    } else {
+                      alert('구독/업그레이드는 웹 서비스에서 진행해주세요. (환경변수 VITE_SUBSCRIBE_URL 설정 시 이 버튼으로 이동합니다)');
+                    }
+                  }}
+                  className={styles.signOutButton}
+                  title={isSubscribed ? '업그레이드/연장' : '구독하기'}
+                >
+                  {isSubscribed ? '업그레이드/연장' : '구독하기'}
+                </button>
+                <button
+                  onClick={() => void refreshMembership()}
+                  className={styles.refreshWalletButton}
+                  disabled={membershipLoading}
+                  title="멤버십 상태 새로고침"
+                >
+                  {membershipLoading ? <Loader2 className={styles.spinnerIcon} /> : <RotateCw size={14} />}
+                  새로고침
+                </button>
+              </div>
+            </div>
+            {!isSubscribed && (
+              <div style={{ marginTop: 10, fontSize: 12, color: '#666' }}>
+                구독 시 AI 채팅, 배포, 버전 관리 기능을 사용할 수 있습니다.
+              </div>
+            )}
           </div>
         </div>
 
