@@ -5,7 +5,7 @@ import aiService from '../services/aiService';
 import domExtractor from '../services/domExtractor';
 import styles from '../styles/ChatTab.module.css';
 import { ArrowUp, Loader, Paperclip, X, List, CirclePlus, Coins, Lock } from 'lucide-react';
-import { AI_MODELS as FALLBACK_AI_MODELS, DEFAULT_AI_MODEL, LOCAL_STORAGE_KEYS, type AIModelKey } from '../config/aiModels';
+import { DEFAULT_AI_MODEL, LOCAL_STORAGE_KEYS, type AIModelKey } from '../config/aiModels';
 import MessageComponent from './MessageComponent';
 import useThreadSSE from '../hooks/useThreadSSE';
 import useImageAttachments from '../hooks/useImageAttachments';
@@ -17,9 +17,9 @@ export default function ChatTab() {
   const { state, actions, computed } = useAppContext();
   const [showThreads, setShowThreads] = useState(false);
   const [inputValue, setInputValue] = useState('');
-  // AI 모델 목록(서버 동적 + 폴백)과 선택 상태
-  const [availableModels, setAvailableModels] = useState<Record<AIModelKey, { label: string }>>(FALLBACK_AI_MODELS);
-  const [aiModel, setAiModel] = useState<AIModelKey>(DEFAULT_AI_MODEL);
+  // AI 모델 목록(서버 동적)과 선택 상태 - 서버 응답 전에는 비워둔다
+  const [availableModels, setAvailableModels] = useState<Record<AIModelKey, { label: string }>>({});
+  const [aiModel, setAiModel] = useState<AIModelKey>('');
   const walletBalance = useWalletBalance();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLDivElement>(null);
@@ -80,20 +80,12 @@ export default function ChatTab() {
   // SSE 연결 훅
   useThreadSSE();
 
-  // 모델 목록 로드 + 최근 사용 모델 복원
+  // 모델 목록 로드 + 최근 사용 모델 복원 (서버 목록 수신 전엔 아무것도 표시하지 않음)
   useEffect(() => {
     let cancelled = false;
 
-    // 미구독 상태면 네트워크 호출 스킵, 로컬 복원/폴백만 적용
+    // 미구독 상태에선 모델 선택을 숨김 (아무것도 렌더링하지 않음)
     if (!isSubscribed) {
-      try {
-        const saved = localStorage.getItem(LOCAL_STORAGE_KEYS.LAST_AI_MODEL);
-        const keys = Object.keys(availableModels || FALLBACK_AI_MODELS);
-        const baseline = keys.includes(DEFAULT_AI_MODEL) ? DEFAULT_AI_MODEL : (keys[0] || DEFAULT_AI_MODEL);
-        setAiModel(saved && keys.includes(saved) ? saved : baseline);
-      } catch {
-        setAiModel(DEFAULT_AI_MODEL);
-      }
       return () => { cancelled = true; };
     }
 
@@ -112,8 +104,8 @@ export default function ChatTab() {
         // 로컬 스토리지 복원 (nextModels 기준)
         try {
           const saved = localStorage.getItem(LOCAL_STORAGE_KEYS.LAST_AI_MODEL);
-          const keys = Object.keys(nextModels || FALLBACK_AI_MODELS);
-          const baseline = keys.includes(DEFAULT_AI_MODEL) ? DEFAULT_AI_MODEL : (keys[0] || DEFAULT_AI_MODEL);
+          const keys = Object.keys(nextModels || {});
+          const baseline = keys.includes(DEFAULT_AI_MODEL) ? DEFAULT_AI_MODEL : (keys[0] || '');
           if (saved && keys.includes(saved)) {
             if (!cancelled) setAiModel(saved);
           } else {
@@ -121,7 +113,7 @@ export default function ChatTab() {
           }
         } catch {}
       } catch {
-        // 무시 (폴백 사용)
+        // 실패 시에도 목록은 비워둔다 (아무것도 표시하지 않음)
       }
     })();
     return () => { cancelled = true; };
@@ -261,7 +253,7 @@ export default function ChatTab() {
           domInfo: domExtractor.extractPageDOM(),
           images: attachedImages.length > 0 ? attachedImages : undefined,
           // 사용자가 선택한 AI 모델을 서버로 전달
-          ai_model_preferred: aiModel,
+          ai_model_preferred: aiModel || undefined,
         },
         siteCode || undefined,
         false,
@@ -460,23 +452,25 @@ export default function ChatTab() {
                       <Paperclip size={16} />
                     </button>
                   </div>
-                  {/* 모델 선택 드롭다운 */}
-                  <div className={styles.modelSelectContainer} title="AI 모델 선택">
-                    <select
-                      className={styles.modelSelect}
-                      value={aiModel}
-                      onChange={(e) => {
-                        const next = e.target.value as AIModelKey;
-                        setAiModel(next);
-                        try { localStorage.setItem(LOCAL_STORAGE_KEYS.LAST_AI_MODEL, next); } catch {}
-                      }}
-                      disabled={!isSubscribed || state.isAiLoading}
-                    >
-                      {Object.entries(availableModels).map(([key, { label }]) => (
-                        <option key={key} value={key}>{label}</option>
-                      ))}
-                    </select>
-                  </div>
+                  {/* 모델 선택 드롭다운: 서버 목록 수신 전엔 렌더하지 않음 */}
+                  {isSubscribed && Object.keys(availableModels).length > 0 && (
+                    <div className={styles.modelSelectContainer} title="AI 모델 선택">
+                      <select
+                        className={styles.modelSelect}
+                        value={aiModel}
+                        onChange={(e) => {
+                          const next = e.target.value as AIModelKey;
+                          setAiModel(next);
+                          try { localStorage.setItem(LOCAL_STORAGE_KEYS.LAST_AI_MODEL, next); } catch {}
+                        }}
+                        disabled={!isSubscribed || state.isAiLoading}
+                      >
+                        {Object.entries(availableModels).map(([key, { label }]) => (
+                          <option key={key} value={key}>{label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
 
                 <div className={styles.controlsRight}>
