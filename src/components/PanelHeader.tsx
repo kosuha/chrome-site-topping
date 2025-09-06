@@ -8,6 +8,8 @@ import { removeCodeFromPage } from '../services/codePreview';
 import { usePreviewLive } from '../hooks/usePreviewLive';
 import { useElementInspector } from '../hooks/useElementInspector';
 import { IconButton, Divider } from './header/HeaderButtons';
+import useMembership from '../hooks/useMembership';
+import { supabase } from '../services/supabase';
 
 interface PanelHeaderProps {
   // 사이드패널에서는 props 불필요
@@ -20,6 +22,7 @@ export default function PanelHeader({}: PanelHeaderProps) {
   const [deploySuccess, setDeploySuccess] = useState(false);
   const [deployFailed, setDeployFailed] = useState(false);
   const siteService = SiteIntegrationService.getInstance();
+  const { isSubscribed } = useMembership();
 
   const { active: isInspectorActive, toggle: toggleInspector, setActive: setInspectorActive } = useElementInspector();
   const [isToggling, setIsToggling] = useState(false);
@@ -39,6 +42,17 @@ export default function PanelHeader({}: PanelHeaderProps) {
       setIsDeploying(true);
       setDeploySuccess(false);
       setDeployFailed(false);
+
+      if (!isSubscribed) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          alert('배포는 로그인 후 이용 가능합니다. User 탭에서 로그인해주세요.');
+        } else {
+          alert('배포는 구독 기능입니다. User 탭에서 구독을 진행해주세요.');
+        }
+        setDeployFailed(true);
+        return;
+      }
 
       // 선택된 사이트 코드가 있는지 확인
       if (!state.selectedSiteCode) {
@@ -167,8 +181,9 @@ export default function PanelHeader({}: PanelHeaderProps) {
         </IconButton>
         <IconButton
           loading={isDeploying}
+          disabled={!isSubscribed}
           onClick={handleDeploy}
-          title={isDeploying ? '배포 중...' : '배포'}
+          title={isDeploying ? '배포 중...' : (!isSubscribed ? '구독 필요' : '배포')}
         >
           {deploySuccess ? <Check size={24} className={styles.successCheck} /> : deployFailed ? <X size={24} className={styles.failedX} /> : <Upload size={24} />}
         </IconButton>

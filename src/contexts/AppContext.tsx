@@ -2,6 +2,7 @@ import React, { createContext, useContext, useReducer, ReactNode, useMemo, useEf
 import { aiService } from '../services/aiService';
 import { supabase } from '../services/supabase';
 import { loadSiteHistoryHelper } from '../services/siteHistory';
+import membershipService from '../services/membershipService';
 
 export interface ChatMessage {
   id: string;
@@ -437,6 +438,14 @@ interface AppContextType {
 // 선택된 사이트의 히스토리를 로드하는 함수 (헬퍼 사용)
 const loadSiteHistory = async (siteCode: string, dispatch: React.Dispatch<AppAction>, currentState: AppState) => {
   try {
+    // 멤버십 확인: 구독자가 아니면 서버 히스토리 로드를 건너뜁니다
+    const status = await membershipService.getStatus();
+    const isSubscribed = !!status && status.level > 0 && !status.is_expired;
+    if (!isSubscribed) {
+      console.log('🚫 [loadSiteHistory] 비구독자 - 서버 버전 조회 건너뜀');
+      return;
+    }
+
     console.log('📝 [loadSiteHistory] 서버에서 코드 버전 조회 중...', siteCode);
     const { steps: reconstructedSteps, latest: latestStep } = await loadSiteHistoryHelper(siteCode);
     console.log('🔄 [loadSiteHistory] 재구성된 히스토리 스텝:', reconstructedSteps.length, '개');

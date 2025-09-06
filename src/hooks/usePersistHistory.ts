@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useAppContext } from '../contexts/AppContext';
 import { persistHistoryStep } from '../services/versioning';
+import membershipService from '../services/membershipService';
 
 /**
  * 코드 히스토리 변경을 감지하여 서버에 20스텝 주기로 스냅샷/패치를 저장
@@ -37,6 +38,12 @@ export default function usePersistHistory() {
         const siteCode = state.selectedSiteCode;
         if (!siteCode) return;
         try {
+          // 멤버십이 없으면 서버 저장 스킵 (무료 사용자 가드)
+          const status = await membershipService.getStatus();
+          const isSubscribed = !!status && status.level > 0 && !status.is_expired;
+          if (!isSubscribed) {
+            return;
+          }
           await persistHistoryStep({
             siteCode,
             previous: previous ? { javascript: previous.javascript, css: previous.css } : { javascript: '', css: '' },

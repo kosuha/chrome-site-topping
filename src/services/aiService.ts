@@ -211,7 +211,11 @@ class AIService {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ message: 'Network error' }));
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      const message = (errorData && (errorData.message || errorData.detail)) || `HTTP error! status: ${response.status}`;
+      if (response.status === 403) {
+        throw new Error(message || '구독 후 이용 가능한 기능입니다.');
+      }
+      throw new Error(message);
     }
 
     return await response.json();

@@ -4,11 +4,13 @@ import ThreadManager from './ThreadManager';
 import aiService from '../services/aiService';
 import domExtractor from '../services/domExtractor';
 import styles from '../styles/ChatTab.module.css';
-import { ArrowUp, Loader, Paperclip, X, List, CirclePlus, Coins } from 'lucide-react';
+import { ArrowUp, Loader, Paperclip, X, List, CirclePlus, Coins, Lock } from 'lucide-react';
 import MessageComponent from './MessageComponent';
 import useThreadSSE from '../hooks/useThreadSSE';
 import useImageAttachments from '../hooks/useImageAttachments';
 import { useWalletBalance } from '../hooks/useWalletBalance';
+import useMembership from '../hooks/useMembership';
+import { supabase } from '../services/supabase';
 
 export default function ChatTab() {
   const { state, actions, computed } = useAppContext();
@@ -18,6 +20,7 @@ export default function ChatTab() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLDivElement>(null);
   const lastPickRef = useRef<{ selector: string; ts: number }>({ selector: '', ts: 0 });
+  const { isSubscribed, status: membershipStatus } = useMembership();
 
   // 커서를 contentEditable 끝으로 이동
   const setCaretToEnd = (el: HTMLElement) => {
@@ -98,6 +101,16 @@ export default function ChatTab() {
   }, [computed.currentMessages, state.isAiLoading]);
 
   const handleSendMessage = async () => {
+    // 구독 필요 가드
+    if (!isSubscribed) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('AI 채팅은 로그인 후 이용 가능합니다. User 탭에서 로그인해주세요.');
+      } else {
+        alert('AI 채팅은 구독 후 이용 가능합니다. User 탭에서 구독을 진행해주세요.');
+      }
+      return;
+    }
     if ((!inputValue.trim() && attachedImages.length === 0) || state.isAiLoading || loadingImages.length > 0) return;
 
     let currentThreadId = state.currentThreadId;
@@ -174,7 +187,7 @@ export default function ChatTab() {
     };
     actions.addMessageToThread(currentThreadId, pendingAiMessage);
 
-    try {
+  try {
       const pageContext = domExtractor.createFullContext(
         state.editorCode.javascript,
         state.editorCode.css
@@ -210,6 +223,9 @@ export default function ChatTab() {
           const msg = error instanceof Error ? error.message : String(error)
           if (msg.includes('402') || msg.includes('크레딧') || msg.includes('충전')) {
             return '크레딧이 부족합니다. User 탭에서 로그인 후 잔액을 확인하고 충전하세요.'
+          }
+          if (msg.includes('구독') || msg.includes('subscription') || msg.includes('403')) {
+            return '구독 후 이용 가능한 기능입니다. User 탭에서 구독 상태를 확인해주세요.'
           }
           return `죄송합니다. AI 응답을 생성하는 중 오류가 발생했습니다: ${msg}`
         })(),
@@ -260,7 +276,7 @@ export default function ChatTab() {
 
   return (
     <div className={styles.container}>
-      <div className={styles.header}>
+  <div className={styles.header}>
         <h3 className={styles.title}>AI 채팅</h3>
         <div className={styles.headerActions}>
           <button className={styles.threadButton} onClick={() => setShowThreads(true)} title="대화 목록">
@@ -307,6 +323,14 @@ export default function ChatTab() {
             onDrop={handleDrop}
           >
             <div className={styles.inputContent}>
+              {!isSubscribed && (
+                <div className={styles.noticeBox}>
+                  <Lock size={14} />
+                  <span>
+                    AI 채팅은 구독 기능입니다. {membershipStatus ? 'User 탭에서 구독을 진행해주세요.' : 'User 탭에서 로그인 후 구독을 진행해주세요.'}
+                  </span>
+                </div>
+              )}
               {isDragOver && (
                 <div className={styles.dragOverlay}>
                   <div className={styles.dragOverlayContent}>
@@ -355,6 +379,8 @@ export default function ChatTab() {
                     onKeyDown={handleKeyDown}
                     className={styles.textInputEditable}
                     data-placeholder="AI에게 질문하거나 코드 작성을 요청해보세요..."
+                    aria-disabled={!isSubscribed}
+                    style={{ pointerEvents: isSubscribed ? 'auto' : 'none', opacity: isSubscribed ? 1 : 0.5 }}
                   />
                 </div>
               </div>
@@ -372,8 +398,9 @@ export default function ChatTab() {
                     />
                     <button
                       type="button"
-                      onClick={() => fileInputRef.current?.click()}
+                      onClick={() => isSubscribed && fileInputRef.current?.click()}
                       className={`${styles.attachButton} ${attachedImages.length > 0 ? styles.attachButtonActive : ''}`}
+                      disabled={!isSubscribed}
                     >
                       <Paperclip size={16} />
                     </button>
@@ -390,7 +417,7 @@ export default function ChatTab() {
                   <button
                     type="button"
                     onClick={handleSendMessage}
-                    disabled={(!inputValue.trim() && attachedImages.length === 0) || state.isAiLoading || loadingImages.length > 0}
+                    disabled={!isSubscribed || (!inputValue.trim() && attachedImages.length === 0) || state.isAiLoading || loadingImages.length > 0}
                     className={styles.sendButton}
                   >
                     <ArrowUp size={16} />
