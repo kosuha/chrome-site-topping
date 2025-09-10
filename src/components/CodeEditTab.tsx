@@ -6,6 +6,8 @@ import styles from '../styles/CodeEditTab.module.css';
 import { useAppContext } from '../contexts/AppContext';
 import { Save, Loader2, Check, X } from 'lucide-react';
 import { EditorView } from '@codemirror/view';
+import { persistHistoryStep } from '../services/versioning';
+import membershipService from '../services/membershipService';
 
 // CodeMirror 배경 투명 테마 (글래스 효과를 컨테이너에서 보이도록)
 const transparentTheme = EditorView.theme({
@@ -99,14 +101,57 @@ export default function CodeEditTab() {
 
       // 500ms 최소 로딩 시간
       await new Promise(resolve => setTimeout(resolve, 500));
+
+      // 서버 버전 생성 (수동 저장 시에도 생성)
+      try {
+        const siteCode = state.selectedSiteCode;
+        if (siteCode) {
+          const status = await membershipService.getStatus();
+          const isSubscribed = !!status && status.level > 0 && !status.is_expired;
+          if (isSubscribed) {
+            const stack = state.codeHistoryStack;
+            const previous = stack.length > 0
+              ? { javascript: stack[stack.length - 1].javascript, css: stack[stack.length - 1].css }
+              : { javascript: '', css: '' };
+            const current = { javascript: state.editorCode.javascript, css: state.editorCode.css };
+
+            // 무변경이면 서버 저장 스킵
+            const noChange = previous.javascript === current.javascript && previous.css === current.css;
+            if (!noChange) {
+              await persistHistoryStep({ siteCode, previous, current });
+            } else {
+              console.log('[CodeEditTab] 수동 저장: 변경 없음으로 서버 저장 스킵');
+            }
+          } else {
+            console.log('[CodeEditTab] 비구독자 - 서버 버전 생성 생략');
+          }
+        } else {
+          console.log('[CodeEditTab] siteCode 미설정 - 서버 버전 생성 생략');
+        }
+      } catch (e) {
+        console.error('수동 저장 서버 버전 생성 실패:', e);
+        // 서버 실패해도 로컬 히스토리는 유지
+      }
       
-      // 현재 코드 상태를 히스토리에 푸시
-      actions.pushCodeHistory({
-        javascript: state.editorCode.javascript,
-        css: state.editorCode.css,
-        description: '사용자 저장',
-        isSuccessful: true,
-      });
+      // 현재 코드 상태를 히스토리에 푸시 (무변경이면 로컬 히스토리도 스킵)
+      {
+        const stack = state.codeHistoryStack;
+        const prevLocal = stack.length > 0
+          ? { javascript: stack[stack.length - 1].javascript, css: stack[stack.length - 1].css }
+          : { javascript: '', css: '' };
+        const currLocal = { javascript: state.editorCode.javascript, css: state.editorCode.css };
+        const noLocalChange = prevLocal.javascript === currLocal.javascript && prevLocal.css === currLocal.css;
+        if (!noLocalChange) {
+          actions.pushCodeHistory({
+            javascript: currLocal.javascript,
+            css: currLocal.css,
+            description: '사용자 저장',
+            isSuccessful: true,
+          });
+        } else {
+          console.log('[CodeEditTab] 로컬 히스토리: 변경 없음으로 push 스킵');
+        }
+      }
       
       setSaveSuccess(true);
 

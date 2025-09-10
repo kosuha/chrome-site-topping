@@ -26,10 +26,30 @@ export default function usePersistHistory() {
       const current: any = state.codeHistoryStack[stackLen - 1];
       const previous = state.codeHistoryStack[stackLen - 2] || null;
 
-      // 복원/초기화로 추가된 항목은 저장하지 않음
+      // 복원/초기화로 추가된 항목은 저장하지 않음 ("복원" 포함 전부 차단)
       const desc = (current?.description || '').toString();
-      if (desc.includes('복원됨') || desc.includes('히스토리 초기화') || desc.includes('서버 복원')) {
+      const isRestoreLike = desc.includes('복원') || desc.includes('히스토리 초기화') || desc.includes('서버 복원');
+      if (isRestoreLike) {
         console.log('🚫 [usePersistHistory] 복원/초기화 항목은 서버 저장 건너뜀:', desc);
+        prevStackLenRef.current = stackLen;
+        return;
+      }
+
+      // 동일 코드(완전 동일)면 저장하지 않음 → 불필요한 패치/중복 버전 방지
+      if (
+        previous &&
+        previous.javascript === current.javascript &&
+        previous.css === current.css
+      ) {
+        console.log('🚫 [usePersistHistory] 코드 변경 없음 - 서버 저장 스킵');
+        prevStackLenRef.current = stackLen;
+        return;
+      }
+
+      // 자동 저장은 AI 자동 적용 결과에 한해 허용
+      const isAiAutoApply = desc.includes('AI 자동 적용');
+      if (!isAiAutoApply) {
+        console.log('⏭️ [usePersistHistory] 자동 저장 비활성(비-AI):', desc);
         prevStackLenRef.current = stackLen;
         return;
       }
@@ -55,8 +75,7 @@ export default function usePersistHistory() {
           console.error('버전 저장 실패:', e);
         }
       })();
-    }
-
+  }
     prevStackLenRef.current = stackLen;
   }, [state.codeHistoryStack, state.currentHistoryIndex, state.isRestoring]);
 }

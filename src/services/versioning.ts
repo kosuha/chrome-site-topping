@@ -184,6 +184,14 @@ export async function persistHistoryStep(opts: {
   const jsPatch = createUnifiedDiff(prevJS, current.javascript, 'script.js');
   const cssPatch = createUnifiedDiff(prevCSS, current.css, 'styles.css');
 
+  // 변경이 전혀 없으면 패치 저장 스킵 (중복 버전/줄 증가 방지)
+  const hasHunk = (p: string | null | undefined) => !!p && /@@\s*-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s*@@/m.test(p);
+  const hasAnyChange = hasHunk(jsPatch) || hasHunk(cssPatch);
+  if (!hasAnyChange) {
+    console.log('[versioning] No changes detected between previous and current. Skipping version save.');
+    return head as VersionRecord; // 변경 없을 때는 HEAD를 그대로 반환
+  }
+
   return await saveVersion({
     site_code: siteCode,
     type: 'patch',

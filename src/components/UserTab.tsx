@@ -564,6 +564,20 @@ export default function UserTab() {
               </div>
               <div className={styles.walletActions}>
                 <button
+                  onClick={() => {
+                    const url = import.meta.env.VITE_CREDIT_TOPUP_URL as string | undefined
+                    if (url) {
+                      window.open(url, '_blank')
+                    } else {
+                      alert('크레딧 구매는 웹 서비스에서 진행해주세요. (환경변수 VITE_CREDIT_TOPUP_URL 설정 시 이 버튼으로 이동합니다)')
+                    }
+                  }}
+                  className={styles.walletTopupButton}
+                  title="크레딧 구매"
+                >
+                  크레딧 구매
+                </button>
+                <button
                   onClick={fetchWalletAndTransactions}
                   className={styles.refreshWalletButton}
                   disabled={walletLoading}
