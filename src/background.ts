@@ -1,5 +1,14 @@
 import { supabase } from './services/supabase';
 
+const EXTENSION_REDIRECT_ORIGIN = (() => {
+  try {
+    return new URL(chrome.identity.getRedirectURL()).origin;
+  } catch (error) {
+    console.warn('[Background] Failed to resolve extension redirect origin:', error);
+    return null;
+  }
+})();
+
 // 현재 적용된 프리뷰 코드 추적
 interface AppliedPreview {
   tabId: number;
@@ -127,48 +136,60 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 // OAuth tab listener
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-    if (changeInfo.status === 'complete' && tab.url) {
-        const url = new URL(tab.url)
-        
-        // Check if this is our OAuth callback
-        if (url.pathname === '/auth/callback' || url.hash.includes('access_token')) {
-            try {
-                // Extract tokens from URL
-                const hashParams = new URLSearchParams(url.hash.substring(1))
-                const accessToken = hashParams.get('access_token')
-                const refreshToken = hashParams.get('refresh_token')
-                
-                if (accessToken) {
-                    // Set the session in Supabase
-                    const { data, error } = await supabase.auth.setSession({
-                        access_token: accessToken,
-                        refresh_token: refreshToken || ''
-                    })
-                    
-                    if (!error) {
-                        // Store user session
-                        await chrome.storage.local.set({
-                            'supabase.auth.token': JSON.stringify(data.session)
-                        })
-                        
-                        // Close the auth tab
-                        chrome.tabs.remove(tabId)
-                        
-                        // Notify content script of successful auth
-                        chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
-                            if (tabs[0]) {
-                                chrome.tabs.sendMessage(tabs[0].id!, {
-                                    type: 'AUTH_SUCCESS',
-                                    user: data.user
-                                })
-                            }
-                        })
-                    }
-                }
-            } catch (error) {
-                console.error('OAuth callback error:', error)
-            }
+    if (changeInfo.status !== 'complete' || !tab.url || !EXTENSION_REDIRECT_ORIGIN) {
+        return;
+    }
+
+    let url: URL;
+    try {
+        url = new URL(tab.url);
+    } catch (error) {
+        console.warn('[Background] Invalid tab URL during auth handling:', error);
+        return;
+    }
+
+    const isExtensionRedirect = url.origin === EXTENSION_REDIRECT_ORIGIN;
+    const hasAccessToken = url.hash.includes('access_token') || url.search.includes('access_token');
+
+    if (!isExtensionRedirect || !hasAccessToken) {
+        return;
+    }
+
+    try {
+        const params = url.hash ? new URLSearchParams(url.hash.substring(1)) : new URLSearchParams(url.search.substring(1));
+        const accessToken = params.get('access_token');
+        const refreshToken = params.get('refresh_token');
+
+        if (!accessToken) {
+            return;
         }
+
+        const { data, error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken || ''
+        });
+
+        if (error) {
+            console.error('OAuth callback error:', error);
+            return;
+        }
+
+        await chrome.storage.local.set({
+            'supabase.auth.token': JSON.stringify(data.session)
+        });
+
+        chrome.tabs.remove(tabId);
+
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0]) {
+                chrome.tabs.sendMessage(tabs[0].id!, {
+                    type: 'AUTH_SUCCESS',
+                    user: data.user
+                });
+            }
+        });
+    } catch (error) {
+        console.error('OAuth callback error:', error);
     }
 });
 
