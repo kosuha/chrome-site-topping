@@ -78,7 +78,6 @@ class SnapshotPreviewService {
    */
   async createSnapshot(): Promise<DOMSnapshot> {
     try {
-      console.log('[SnapshotPreview] DOM 스냅샷 생성 시작');
       
       const snapshot: DOMSnapshot = {
         fullSnapshot: document.documentElement.outerHTML,
@@ -92,10 +91,6 @@ class SnapshotPreviewService {
       };
 
       this.currentSnapshot = snapshot;
-      console.log('[SnapshotPreview] 스냅샷 생성 완료', {
-        size: snapshot.fullSnapshot.length,
-        url: snapshot.url
-      });
       
       return snapshot;
     } catch (error) {
@@ -110,7 +105,6 @@ class SnapshotPreviewService {
   private startTracking() {
     if (this.isTracking || !this.currentSnapshot) return;
 
-    console.log('[SnapshotPreview] DOM 변경 추적 시작');
     
     this.mutationObserver = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
@@ -187,7 +181,6 @@ class SnapshotPreviewService {
       
       if (originalElement) {
         this.currentSnapshot.changedElements.set(path, originalElement.outerHTML);
-        console.log('[SnapshotPreview] 요소 변경 추적:', path);
       }
     }
   }
@@ -213,7 +206,6 @@ class SnapshotPreviewService {
       this.mutationObserver = null;
     }
     this.isTracking = false;
-    console.log('[SnapshotPreview] DOM 변경 추적 중지');
   }
 
   /**
@@ -225,10 +217,6 @@ class SnapshotPreviewService {
     }
 
     try {
-      console.log('[SnapshotPreview] 코드 적용 시작 (추적 모드)', {
-        cssLength: css.length,
-        jsLength: js.length
-      });
 
       // 변경 추적 시작
       this.startTracking();
@@ -243,7 +231,6 @@ class SnapshotPreviewService {
         await this.applyJSCode(js);
       }
 
-      console.log('[SnapshotPreview] 코드 적용 완료');
     } catch (error) {
       console.error('[SnapshotPreview] 코드 적용 실패:', error);
       throw error;
@@ -269,7 +256,6 @@ class SnapshotPreviewService {
     this.appliedCSSElement = styleElement;
     this.currentSnapshot!.cssElementId = styleElement.id;
 
-    console.log('[SnapshotPreview] CSS 적용 완료');
   }
 
   /**
@@ -319,7 +305,6 @@ class SnapshotPreviewService {
       }
     }, 0);
 
-    console.log('[SnapshotPreview] JavaScript 적용 완료');
   }
 
   /**
@@ -370,7 +355,6 @@ class SnapshotPreviewService {
         });
       });
 
-      console.log('[SnapshotPreview] JS 효과 클린업 완료');
     } catch (error) {
       console.error('[SnapshotPreview] JS 클린업 실패:', error);
     }
@@ -385,7 +369,6 @@ class SnapshotPreviewService {
     }
 
     try {
-      console.log('[SnapshotPreview] 실시간 코드 업데이트');
 
       // CSS 업데이트
       if (this.appliedCSSElement) {
@@ -400,7 +383,6 @@ class SnapshotPreviewService {
         await this.cleanupJSEffects();
       }
 
-      console.log('[SnapshotPreview] 실시간 업데이트 완료');
     } catch (error) {
       console.error('[SnapshotPreview] 실시간 업데이트 실패:', error);
       throw error;
@@ -417,15 +399,12 @@ class SnapshotPreviewService {
     }
 
     try {
-      console.log('[SnapshotPreview] 스냅샷에서 복원 시작');
 
       // 변경 추적 중지
       this.stopTracking();
 
       // 방법 1: 변경된 요소들만 선택적으로 복원 (성능 최적화)
       if (this.currentSnapshot.changedElements.size > 0) {
-        console.log('[SnapshotPreview] 선택적 복원 시도', 
-          `${this.currentSnapshot.changedElements.size}개 요소`);
         
         let restoredCount = 0;
         this.currentSnapshot.changedElements.forEach((originalHTML, path) => {
@@ -449,9 +428,7 @@ class SnapshotPreviewService {
           }
         });
 
-        console.log('[SnapshotPreview] 선택적 복원 완료:', restoredCount);
       } else {
-        console.log('[SnapshotPreview] 변경된 요소 없음, CSS/JS만 정리');
       }
 
       // Site Topping 요소들 제거
@@ -470,11 +447,9 @@ class SnapshotPreviewService {
       this.appliedCSSElement = null;
       this.jsTrackingId = null;
 
-      console.log('[SnapshotPreview] 복원 완료');
     } catch (error) {
       console.error('[SnapshotPreview] 복원 실패:', error);
       // 복원 실패 시 페이지 새로고침으로 대체
-      console.log('[SnapshotPreview] 복원 실패, 페이지 새로고침으로 대체');
       window.location.reload();
     }
   }

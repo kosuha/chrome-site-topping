@@ -220,7 +220,6 @@ export class SiteIntegrationService {
               scriptUrl: `${this.baseUrl}/api/v1/sites/${siteCode}/script`
             });
             
-            console.log('스크립트 설치 확인 결과:', result);
             return result?.installed === true;
           } catch (error) {
             console.warn('content script 통신 실패:', error);
@@ -235,7 +234,6 @@ export class SiteIntegrationService {
         const scriptUrl = `${this.baseUrl}/api/v1/sites/${siteCode}/script`
         const response = await fetch(scriptUrl, { method: 'HEAD' })
         if (response.ok) {
-          console.log('서버에 스크립트 존재하지만 설치 여부 확인 불가');
           // 서버에 스크립트가 존재하면 연동 가능으로 간주
           return true;
         }

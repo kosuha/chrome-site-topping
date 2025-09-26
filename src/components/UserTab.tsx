@@ -47,7 +47,6 @@ export default function UserTab() {
     // Retrieve the active tab hostname from the browser
     const getCurrentDomain = async () => {
       try {
-        console.log('[UserTab] Fetching active tab information...');
         
         const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
         
@@ -55,8 +54,6 @@ export default function UserTab() {
           const url = new URL(activeTab.url);
           const hostname = url.hostname;
           
-          console.log('[UserTab] Active tab URL:', activeTab.url);
-          console.log('[UserTab] Detected hostname:', hostname);
           
           if (hostname && 
               hostname !== 'localhost' && 
@@ -65,16 +62,13 @@ export default function UserTab() {
               !hostname.includes('extension') &&
               hostname.length > 0) {
             
-            console.log('[UserTab] Using hostname as domain:', hostname);
             setCurrentDomain(hostname);
             setNewSiteDomain(hostname);
           } else {
-            console.log('[UserTab] Invalid hostname detected:', hostname, '- using default');
             setCurrentDomain('example.com');
             setNewSiteDomain('example.com');
           }
         } else {
-          console.log('[UserTab] No active tab URL - using default');
           setCurrentDomain('example.com');
           setNewSiteDomain('example.com');
         }
@@ -138,14 +132,12 @@ export default function UserTab() {
         setSelectedSiteId(currentSite.id)
         await loadSiteScript(currentSite)
         if (currentSite.site_code) {
-          console.log('🎯 [UserTab] Auto-selected site:', currentSite.site_code)
           actions.setSelectedSiteCode(currentSite.site_code)
         }
       } else if (sitesWithStatus.length > 0) {
         setSelectedSiteId(sitesWithStatus[0].id)
         await loadSiteScript(sitesWithStatus[0])
         if (sitesWithStatus[0].site_code) {
-          console.log('🎯 [UserTab] Auto-selected first site:', sitesWithStatus[0].site_code)
           actions.setSelectedSiteCode(sitesWithStatus[0].site_code)
         }
       }
@@ -201,7 +193,6 @@ export default function UserTab() {
       
       // 선택된 사이트 코드 설정 (AppContext useEffect에서 자동으로 히스토리 로드됨)
       if (selectedSite.site_code) {
-        console.log('🎯 [UserTab] Site selected:', selectedSite.site_code)
         actions.setSelectedSiteCode(selectedSite.site_code)
       }
     }

@@ -321,7 +321,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'SET_AI_LOADING':
       return { ...state, isAiLoading: action.payload };
     case 'RESET_STATE':
-      console.log('🔄 RESET_STATE 실행됨 - 완전 초기화');
       return getInitialState();
     case 'LOAD_THREADS_FROM_SERVER':
       return {
@@ -442,19 +441,15 @@ const loadSiteHistory = async (siteCode: string, dispatch: React.Dispatch<AppAct
     const status = await membershipService.getStatus();
     const isSubscribed = !!status && status.level > 0 && !status.is_expired;
     if (!isSubscribed) {
-      console.log('🚫 [loadSiteHistory] 비구독자 - 서버 버전 조회 건너뜀');
       return;
     }
 
-    console.log('📝 [loadSiteHistory] 서버에서 코드 버전 조회 중...', siteCode);
     const { steps: reconstructedSteps, latest: latestStep } = await loadSiteHistoryHelper(siteCode);
-    console.log('🔄 [loadSiteHistory] 재구성된 히스토리 스텝:', reconstructedSteps.length, '개');
 
     const currentJavaScript = currentState.editorCode.javascript.trim();
     const currentCss = currentState.editorCode.css.trim();
 
     if (reconstructedSteps.length === 0) {
-      console.log('📝 [loadSiteHistory] 코드 버전 없음 - 빈 히스토리로 초기화');
       dispatch({ type: 'CLEAR_CODE_HISTORY' });
       dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'javascript', code: '' } });
       dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'css', code: '' } });
@@ -466,11 +461,9 @@ const loadSiteHistory = async (siteCode: string, dispatch: React.Dispatch<AppAct
     const normalizedLatestCSS = (latestStep.css || '').trim();
 
     if (normalizedLatestJS === currentJavaScript && normalizedLatestCSS === currentCss) {
-      console.log('⚠️ [loadSiteHistory] 동일한 코드 - 복원 건너뜀');
       return;
     }
 
-    console.log('🔄 [loadSiteHistory] 최신 코드로 히스토리 복원');
     dispatch({ type: 'SET_RESTORING', payload: true });
     dispatch({ type: 'CLEAR_CODE_HISTORY' });
 
@@ -488,7 +481,6 @@ const loadSiteHistory = async (siteCode: string, dispatch: React.Dispatch<AppAct
 
     dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'javascript', code: latestStep.javascript || '' } });
     dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'css', code: latestStep.css || '' } });
-    console.log('✅ [loadSiteHistory] 코드 복원 완료');
     dispatch({ type: 'SET_RESTORING', payload: false });
   } catch (error) {
     console.error('💥 [loadSiteHistory] 히스토리 로드 실패:', error);
@@ -508,15 +500,10 @@ export function AppProvider({ children }: AppProviderProps) {
   // 새로운 사용자 데이터 로드 함수
   const loadUserData = async (_user: any) => {
     try {
-      console.log('🔄 [loadUserData] 사용자 데이터 로드 시작');
       dispatch({ type: 'SET_LOADING', payload: true });
 
       // 스레드 목록 로드
-      console.log('📋 [loadUserData] 스레드 목록 로드 중...');
       const threadsResponse = await aiService.getThreads();
-      console.log('📋 [loadUserData] 스레드 응답:', threadsResponse);
-      console.log('📋 [loadUserData] 스레드 상태:', threadsResponse?.status);
-      console.log('📋 [loadUserData] 스레드 개수:', threadsResponse?.data?.threads?.length || 0);
       
       if (threadsResponse.status === 'success' && threadsResponse.data.threads) {
         const serverThreads = threadsResponse.data.threads.map(thread => ({
@@ -619,7 +606,6 @@ export function AppProvider({ children }: AppProviderProps) {
         }
       }
 
-      console.log('🌐 [loadUserData] 초기 로딩 완료 - 사이트 선택 시 히스토리가 로드됩니다');
 
     } catch (error) {
       console.error('사용자 데이터 로드 실패:', error);
@@ -637,15 +623,12 @@ export function AppProvider({ children }: AppProviderProps) {
     const loadInitialUserData = async () => {
       try {
         if (initialLoadRef.current) {
-          console.log('⏭️ [AppContext] 이미 초기 로딩 완료, 건너뜀');
           return;
         }
         
-        console.log('🚀 [AppContext] 초기 사용자 데이터 로드 시도');
         initialLoadRef.current = true;
         
         // Supabase에서 현재 세션 확인
-        console.log('🔍 [AppContext] Supabase 세션 확인 중...');
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError) {
@@ -653,17 +636,12 @@ export function AppProvider({ children }: AppProviderProps) {
           return;
         }
         
-        console.log('🔐 [AppContext] 현재 세션:', session?.user?.id ? `사용자 ${session.user.id}` : '로그인 안됨');
         
         if (session?.user) {
-          console.log('👤 [AppContext] 로그인된 사용자 발견, 데이터 로드 시작');
-          console.log('📊 [AppContext] 로드 전 상태 - 스레드:', state.chatThreads.length, '개');
           
           await loadUserData(session.user);
           
-          console.log('✅ [AppContext] 사용자 데이터 로드 완료');
         } else {
-          console.log('❌ [AppContext] 로그인된 사용자 없음 - 히스토리 로드 건너뜀');
         }
       } catch (error) {
         console.error('💥 [AppContext] 초기 사용자 데이터 로드 실패:', error);
@@ -679,21 +657,17 @@ export function AppProvider({ children }: AppProviderProps) {
   useEffect(() => {
     const handleUserChange = (event: CustomEvent) => {
       const { action, user } = event.detail;
-      console.log('📱 AppContext 사용자 변경 이벤트:', action, user?.id);
       
       if (action === 'logout') {
         // 로그아웃 시 모든 사용자 관련 상태 초기화
-        console.log('🗑️ AppContext 상태 초기화 (로그아웃)');
         dispatch({ type: 'RESET_STATE' });
         initialLoadRef.current = false; // 초기화 플래그 리셋
       } else if (action === 'login' || action === 'switch') {
         // 초기 로딩이 이미 완료되었다면 사용자 변경 이벤트에서만 처리
         if (initialLoadRef.current) {
-          console.log('🔄 AppContext 사용자 변경으로 인한 데이터 로드');
           dispatch({ type: 'RESET_STATE' });
           loadUserData(user);
         } else {
-          console.log('⏭️ AppContext 초기 로딩 중이므로 사용자 변경 이벤트 건너뜀');
         }
       }
     };
@@ -710,7 +684,6 @@ export function AppProvider({ children }: AppProviderProps) {
     if (state.selectedSiteCode) {
       const loadHistoryForSelectedSite = async () => {
         try {
-          console.log('🎯 [AppContext] 선택된 사이트 변경됨, 히스토리 로드:', state.selectedSiteCode);
           await loadSiteHistory(state.selectedSiteCode!, dispatch, state);
         } catch (error) {
           console.error('❌ [AppContext] 선택된 사이트 히스토리 로드 실패:', error);

@@ -16,7 +16,6 @@ export default function usePersistHistory() {
 
     // 복원 중일 때는 저장하지 않음
     if (state.isRestoring) {
-      console.log('🚫 [usePersistHistory] 복원 중이므로 저장 건너뜀');
       prevStackLenRef.current = stackLen;
       return;
     }
@@ -30,7 +29,6 @@ export default function usePersistHistory() {
       const desc = (current?.description || '').toString();
       const isRestoreLike = desc.includes('복원') || desc.includes('히스토리 초기화') || desc.includes('서버 복원');
       if (isRestoreLike) {
-        console.log('🚫 [usePersistHistory] 복원/초기화 항목은 서버 저장 건너뜀:', desc);
         prevStackLenRef.current = stackLen;
         return;
       }
@@ -41,7 +39,6 @@ export default function usePersistHistory() {
         previous.javascript === current.javascript &&
         previous.css === current.css
       ) {
-        console.log('🚫 [usePersistHistory] 코드 변경 없음 - 서버 저장 스킵');
         prevStackLenRef.current = stackLen;
         return;
       }
@@ -49,7 +46,6 @@ export default function usePersistHistory() {
       // 자동 저장은 AI 자동 적용 결과에 한해 허용
       const isAiAutoApply = desc.includes('AI 자동 적용');
       if (!isAiAutoApply) {
-        console.log('⏭️ [usePersistHistory] 자동 저장 비활성(비-AI):', desc);
         prevStackLenRef.current = stackLen;
         return;
       }

@@ -68,13 +68,11 @@ export default function PanelHeader({}: PanelHeaderProps) {
       const cssContent = state.editorCode.css || '';
       const jsContent = state.editorCode.javascript || '';
 
-      console.log('🚀 [PanelHeader] 선택된 사이트로 배포:', state.selectedSiteCode);
 
       // 서버에 배포 (CSS와 JS 분리)
       await siteService.deployScript(state.selectedSiteCode, cssContent, jsContent);
       
       setDeploySuccess(true);
-      console.log('✅ [PanelHeader] 배포 성공');
 
     } catch (error) {
       console.error('❌ [PanelHeader] 배포 실패:', error);

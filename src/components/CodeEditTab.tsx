@@ -122,13 +122,10 @@ export default function CodeEditTab() {
             if (!noChange) {
               await persistHistoryStep({ siteCode, previous, current });
             } else {
-              console.log('[CodeEditTab] 수동 저장: 변경 없음으로 서버 저장 스킵');
             }
           } else {
-            console.log('[CodeEditTab] 비구독자 - 서버 버전 생성 생략');
           }
         } else {
-          console.log('[CodeEditTab] siteCode 미설정 - 서버 버전 생성 생략');
         }
       } catch (e) {
         console.error('수동 저장 서버 버전 생성 실패:', e);
@@ -151,7 +148,6 @@ export default function CodeEditTab() {
             isSuccessful: true,
           });
         } else {
-          console.log('[CodeEditTab] 로컬 히스토리: 변경 없음으로 push 스킵');
         }
       }
       

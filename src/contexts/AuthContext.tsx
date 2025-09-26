@@ -66,7 +66,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('🔐 Auth state change:', event, session?.user?.id, 'previous:', state.user?.id)
         
         const previousUser = state.user
         dispatch({
@@ -77,20 +76,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // 사용자 변경 감지 - 더 확실한 감지 로직
         if (event === 'SIGNED_OUT' || (!session?.user && previousUser)) {
           // 로그아웃
-          console.log('👋 사용자 로그아웃, 상태 초기화')
           window.dispatchEvent(new CustomEvent('auth:user-changed', { 
             detail: { action: 'logout' } 
           }))
         } else if (event === 'SIGNED_IN' && session?.user) {
           if (!previousUser) {
             // 완전히 새로운 로그인
-            console.log('👋 새 사용자 로그인:', session.user.id)
             window.dispatchEvent(new CustomEvent('auth:user-changed', { 
               detail: { action: 'login', user: session.user } 
             }))
           } else if (previousUser.id !== session.user.id) {
             // 다른 사용자로 전환
-            console.log('🔄 사용자 전환:', previousUser.id, '->', session.user.id)
             window.dispatchEvent(new CustomEvent('auth:user-changed', { 
               detail: { action: 'switch', user: session.user } 
             }))
@@ -173,7 +169,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     dispatch({ type: 'SET_LOADING', payload: true })
     try {
-      console.log('🚪 수동 로그아웃 시작')
       
       // 먼저 직접 로그아웃 이벤트 발송
       window.dispatchEvent(new CustomEvent('auth:user-changed', { 

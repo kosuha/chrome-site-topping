@@ -1,7 +1,7 @@
 {
   "name": "chrome-site-topping",
   "version": "1.0.0",
-  "description": "화면 우측에 표시되는 사이트 토핑 크롬 익스텐션입니다.",
+  "description": "사이트 토핑 크롬 익스텐션입니다.",
   "main": "background.js",
   "scripts": {
     "dev": "vite",
@@ -19,7 +19,7 @@
   "bugs": {
     "url": "https://github.com/kosuha/chrome-site-topping/issues"
   },
-  "homepage": "https://github.com/kosuha/chrome-site-topping#readme",
+  "homepage": "https://sitetopping.com",
   "dependencies": {
     "@codemirror/lang-css": "^6.3.1",
     "@codemirror/lang-javascript": "^6.2.4",

@@ -188,7 +188,6 @@ export async function persistHistoryStep(opts: {
   const hasHunk = (p: string | null | undefined) => !!p && /@@\s*-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s*@@/m.test(p);
   const hasAnyChange = hasHunk(jsPatch) || hasHunk(cssPatch);
   if (!hasAnyChange) {
-    console.log('[versioning] No changes detected between previous and current. Skipping version save.');
     return head as VersionRecord; // 변경 없을 때는 HEAD를 그대로 반환
   }
 

@@ -29,7 +29,6 @@ export async function reloadActiveTab(delayMs = 800): Promise<void> {
  * 스냅샷 기반 시스템을 우선 사용하고, 실패 시 기존 시스템으로 폴백
  */
 export async function applyCodeToPage(css: string, js: string): Promise<void> {
-  console.log('[CodePreview] 스냅샷 기반 코드 적용 요청');
   
   try {
     // 스냅샷 기반 시스템 사용
@@ -40,7 +39,6 @@ export async function applyCodeToPage(css: string, js: string): Promise<void> {
     });
     
     if (response?.success) {
-      console.log('[CodePreview] 스냅샷 기반 적용 성공');
       return;
     }
     
@@ -50,7 +48,6 @@ export async function applyCodeToPage(css: string, js: string): Promise<void> {
   }
   
   // 기존 시스템으로 폴백
-  console.log('[CodePreview] 기존 시스템으로 코드 적용');
   const response = await chrome.runtime.sendMessage({ type: 'APPLY_CODE_PREVIEW', css, js });
   if (!response?.success) throw new Error(response?.error || '코드 적용 실패');
 }
@@ -68,14 +65,12 @@ export async function applyAfterReload(css: string, js: string, delayMs = 800): 
  * 스냅샷이 있으면 스냅샷으로 복원하고, 없으면 기존 방식으로 제거
  */
 export async function removeCodeFromPage(): Promise<void> {
-  console.log('[CodePreview] 스냅샷 기반 코드 제거 요청');
   
   try {
     // 스냅샷에서 복원 시도
     const response = await chrome.runtime.sendMessage({ type: 'RESTORE_FROM_SNAPSHOT' });
     
     if (response?.success) {
-      console.log('[CodePreview] 스냅샷에서 복원 성공');
       return;
     }
     
@@ -85,7 +80,6 @@ export async function removeCodeFromPage(): Promise<void> {
   }
   
   // 기존 시스템으로 폴백
-  console.log('[CodePreview] 기존 시스템으로 코드 제거');
   const response = await chrome.runtime.sendMessage({ type: 'REMOVE_CODE_PREVIEW' });
   if (!response?.success) throw new Error(response?.error || '코드 제거 실패');
 }
@@ -111,7 +105,6 @@ export function disablePreview(): void {
  * 스냅샷이 있는 경우에만 실시간 업데이트, 없으면 일반 적용
  */
 export async function updateCodePreview(css: string, js: string): Promise<void> {
-  console.log('[CodePreview] 실시간 코드 업데이트 요청');
   
   try {
     // 스냅샷 기반 실시간 업데이트 시도
@@ -122,7 +115,6 @@ export async function updateCodePreview(css: string, js: string): Promise<void> 
     });
     
     if (response?.success) {
-      console.log('[CodePreview] 실시간 업데이트 성공');
       return;
     }
     

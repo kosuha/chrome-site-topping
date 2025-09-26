@@ -361,11 +361,9 @@ class AIService {
   // 현재 도메인의 사이트 코드 가져오기 (배포용)
   async getCurrentSiteCode(): Promise<string | null> {
     try {
-      console.log('🔍 [getCurrentSiteCode] 사이트 코드 조회 시작');
       
       // Chrome extension 환경 체크
       if (typeof chrome !== 'undefined' && chrome.runtime) {
-        console.log('🔍 [getCurrentSiteCode] Chrome extension 환경에서 background script 통신 시도');
         
         // background script를 통해 도메인 가져오기
         const response = await new Promise<{ success: boolean; domain?: string; error?: string }>((resolve) => {
@@ -376,7 +374,6 @@ class AIService {
                 console.error('Chrome runtime error:', chrome.runtime.lastError);
                 resolve({ success: false, error: chrome.runtime.lastError.message });
               } else {
-                console.log('🔍 [getCurrentSiteCode] Background script 응답:', response);
                 resolve(response || { success: false, error: 'No response' });
               }
             }
@@ -384,7 +381,6 @@ class AIService {
         });
 
         if (response.success && response.domain) {
-          console.log('✅ [getCurrentSiteCode] Background script에서 도메인 획득:', response.domain);
           return response.domain;
         } else {
           console.warn('⚠️ [getCurrentSiteCode] Background script에서 도메인 가져오기 실패:', response.error);
@@ -392,9 +388,7 @@ class AIService {
       }
 
       // Chrome extension이 아니거나 실패한 경우 fallback 사용
-      console.log('🔄 [getCurrentSiteCode] Fallback 도메인 조회로 전환');
       const fallbackDomain = this.getFallbackDomain();
-      console.log('🔄 [getCurrentSiteCode] Fallback 결과:', fallbackDomain);
       return fallbackDomain;
     } catch (error) {
       console.error('💥 [getCurrentSiteCode] 사이트 코드 가져오기 실패:', error);

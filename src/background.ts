@@ -24,21 +24,16 @@ async function reapplyLivePreview(tabId: number) {
   const now = Date.now();
   const last = reapplyThrottle.get(tabId) || 0;
   if (now - last < 300) {
-    console.log(`[Background] 재적용 스로틀 - 탭 ${tabId}, 대기시간: ${300 - (now - last)}ms`);
     return; // 300ms 스로틀
   }
   reapplyThrottle.set(tabId, now);
   
   const preview = appliedPreviews.get(tabId);
-  console.log(`[Background] 재적용 확인 - 탭 ${tabId}:`, preview ? `CSS: ${preview.cssCode?.length || 0}자, JS: ${preview.jsCode?.length || 0}자` : '프리뷰 없음');
   
   if (!preview) {
-    console.log(`[Background] 탭 ${tabId}에 적용된 프리뷰 없음 - 재적용 건너뜀`);
     return;
   }
   
-  console.log(`[Background] 메인 브랜치 방식 라이브 프리뷰 재적용 시작 - 탭 ${tabId}`);
-  console.log(`[Background] 재적용할 코드 - CSS: "${preview.cssCode?.substring(0, 100)}...", JS: "${preview.jsCode?.substring(0, 100)}..."`);
   
   // 먼저 시스템 초기화
   try {
@@ -54,20 +49,17 @@ async function reapplyLivePreview(tabId: number) {
       target: { tabId },
       world: 'MAIN',
       func: async (cssCode: string, jsCode: string) => {
-        console.log(`[WebPage] 재적용 요청 - CSS: ${cssCode?.length || 0}자, JS: ${jsCode?.length || 0}자`);
         const applyFunc = (window as any).__siteTopping_applyCodeMainBranch;
         if (!applyFunc) {
           console.error('[WebPage] __siteTopping_applyCodeMainBranch 함수 없음');
           return { success: false, error: '시스템이 초기화되지 않았습니다' };
         }
         const result = await applyFunc(cssCode, jsCode);
-        console.log('[WebPage] 재적용 결과:', result);
         return result;
       },
       args: [preview.cssCode || '', preview.jsCode || '']
     });
     
-    console.log(`[Background] 재적용 완료 - 탭 ${tabId}:`, result?.result);
     
     if (!result?.result?.success) {
       console.error(`[Background] 재적용 실패 - 탭 ${tabId}:`, result?.result?.error);
@@ -81,20 +73,15 @@ async function reapplyLivePreview(tabId: number) {
 chrome.webNavigation.onCompleted.addListener(async (details) => {
   try {
     if (details.frameId !== 0) {
-      console.log(`[Background] 서브프레임 네비게이션 무시 - 탭 ${details.tabId}, 프레임 ${details.frameId}`);
       return; // 최상위 프레임만
     }
     
-    console.log(`[Background] 페이지 네비게이션 완료 - 탭 ${details.tabId}, URL: ${details.url}`);
-    console.log(`[Background] 현재 적용된 프리뷰 목록:`, Array.from(appliedPreviews.keys()));
     
     // 프리뷰가 적용되어 있다면 새로고침 후에도 재적용
     const preview = appliedPreviews.get(details.tabId);
     if (preview) {
-      console.log(`[Background] 페이지 새로고침 감지 - 프리뷰 재적용 시작: 탭 ${details.tabId}`);
       await reapplyLivePreview(details.tabId);
     } else {
-      console.log(`[Background] 탭 ${details.tabId}에 적용된 프리뷰 없음 - 재적용 건너뜀`);
     }
   } catch (e) {
     console.error('[Background] 네비게이션 후 재적용 실패:', e);
@@ -109,7 +96,6 @@ chrome.webNavigation.onHistoryStateUpdated.addListener(async (details) => {
     // 프리뷰가 적용되어 있다면 SPA 네비게이션 후에도 재적용
     const preview = appliedPreviews.get(details.tabId);
     if (preview) {
-      console.log('[Background] SPA 네비게이션 감지 - 프리뷰 재적용:', details.tabId);
       await reapplyLivePreview(details.tabId);
     }
   } catch (e) {
@@ -119,7 +105,6 @@ chrome.webNavigation.onHistoryStateUpdated.addListener(async (details) => {
 
 // Initialize declarativeNetRequest rules
 chrome.runtime.onInstalled.addListener(async () => {
-    console.log('[Background] Extension installed, static blocking rules from rules.json are active');
 });
 
 // Handle extension icon click to open side panel
@@ -195,7 +180,6 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
 // 메시지 핸들러
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log('[Background] 메시지 수신:', message.type);
     
     // 메인 브랜치 방식: 스냅샷 생성 및 코드 적용 요청
     if (message.type === 'CREATE_SNAPSHOT_AND_APPLY') {
@@ -258,7 +242,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'GET_CURRENT_DOMAIN') {
         getCurrentDomain()
             .then((domain) => {
-                console.log('[Background] 도메인 조회 성공:', domain);
                 sendResponse({ success: true, domain });
             })
             .catch((error) => {
@@ -293,7 +276,6 @@ async function handleCreateSnapshotAndApplyMainBranch(message: any, sender: chro
             targetTabId = activeTab.id;
         }
         
-        console.log(`[Background] 메인 브랜치 방식 프리뷰 시작 - 탭 ${targetTabId}`);
         
         // 메인 브랜치 시스템 초기화 (한 번만)
         await initializeMainBranchSystem(targetTabId);
@@ -305,8 +287,6 @@ async function handleCreateSnapshotAndApplyMainBranch(message: any, sender: chro
             jsCode: js || ''
         });
         
-        console.log(`[Background] 프리뷰 상태 저장 - 탭 ${targetTabId}: CSS ${(css || '').length}자, JS ${(js || '').length}자`);
-        console.log(`[Background] 현재 추적 중인 탭들:`, Array.from(appliedPreviews.keys()));
         
         // 메인 브랜치 방식의 코드 적용
         const [result] = await chrome.scripting.executeScript({
@@ -322,7 +302,6 @@ async function handleCreateSnapshotAndApplyMainBranch(message: any, sender: chro
             throw new Error(result?.result?.error || '메인 브랜치 방식 프리뷰 적용 실패');
         }
         
-        console.log('[Background] 메인 브랜치 방식 프리뷰 적용 완료');
         sendResponse({ success: true });
         
     } catch (error) {
@@ -347,11 +326,9 @@ async function handleRestoreFromSnapshotMainBranch(message: any, sender: chrome.
             targetTabId = activeTab.id;
         }
         
-        console.log(`[Background] 메인 브랜치 방식 베이스라인 복원 - 탭 ${targetTabId}`);
         
         // 적용된 코드 추적에서 제거 (프리뷰 종료로 더 이상 재적용하지 않음)
         appliedPreviews.delete(targetTabId);
-        console.log(`[Background] 탭 ${targetTabId} 프리뷰 상태 제거 - 새로고침 시 재적용 안됨`);
         
         // 메인 브랜치 방식의 베이스라인 복원
         const [result] = await chrome.scripting.executeScript({
@@ -366,7 +343,6 @@ async function handleRestoreFromSnapshotMainBranch(message: any, sender: chrome.
             throw new Error(result?.result?.error || '메인 브랜치 방식 복원 실패');
         }
         
-        console.log('[Background] 메인 브랜치 방식 베이스라인 복원 완료');
         sendResponse({ success: true });
         
     } catch (error) {
@@ -391,7 +367,6 @@ async function handleUpdatePreviewCodeMainBranch(message: any, sender: chrome.ru
             targetTabId = activeTab.id;
         }
         
-        console.log(`[Background] 메인 브랜치 방식 실시간 업데이트 - 탭 ${targetTabId}`);
         
         // 적용된 코드 추적 업데이트
         appliedPreviews.set(targetTabId, {
@@ -414,7 +389,6 @@ async function handleUpdatePreviewCodeMainBranch(message: any, sender: chrome.ru
             throw new Error(result?.result?.error || '메인 브랜치 방식 실시간 업데이트 실패');
         }
         
-        console.log('[Background] 메인 브랜치 방식 실시간 업데이트 완료');
         sendResponse({ success: true });
         
     } catch (error) {
@@ -580,7 +554,6 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                         elementAttributes,
                       };
                       
-                      console.log('[Site Topping] Enhanced baseline captured');
                     } catch (e) {
                       console.warn('[Site Topping] Failed to capture enhanced baseline:', e);
                     }
@@ -1109,7 +1082,6 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                         }
                       });
                       
-                      console.log('[Site Topping] Gentle restore completed');
                     } catch (e) {
                       console.warn('[Site Topping] Gentle restore failed, falling back to rollback:', e);
                       rollback();
@@ -1144,7 +1116,6 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                     try {
                         try { window.postMessage({ type: 'SITE_TOPPING_PREVIEW_START' }, '*'); } catch {}
                         await __preview.update(cssCode || '', jsCode || '');
-                        console.log('[WebPage] 메인 브랜치 방식 코드 적용 완료');
                         return { success: true };
                     } catch (error) {
                         console.error('[WebPage] 메인 브랜치 방식 코드 적용 실패:', error);
@@ -1164,7 +1135,6 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                     
                     try {
                         const result = await __preview.disable();
-                        console.log('[WebPage] 메인 브랜치 방식 프리뷰 비활성화 완료');
                         return result;
                     } catch (error) {
                         console.error('[WebPage] 메인 브랜치 방식 프리뷰 비활성화 실패:', error);
@@ -1172,7 +1142,6 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                     }
                 };
                 
-                console.log('[WebPage] 메인 브랜치 시스템 초기화 완료');
                 return { success: true };
             }
         });
@@ -1183,7 +1152,6 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
 
 async function getCurrentDomain(): Promise<string | null> {
     try {
-        console.log('[Background] 활성 탭 도메인 조회 중...');
         
         // 현재 활성화된 탭 정보 가져오기
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -1192,8 +1160,6 @@ async function getCurrentDomain(): Promise<string | null> {
             console.warn('[Background] 활성 탭 URL을 찾을 수 없음');
             return null;
         }
-
-        console.log('[Background] 활성 탭 URL:', tab.url);
         
         // chrome://이나 edge://같은 브라우저 내부 페이지는 제외
         if (tab.url.startsWith('chrome://') || tab.url.startsWith('edge://') || tab.url.startsWith('about:')) {
@@ -1203,7 +1169,6 @@ async function getCurrentDomain(): Promise<string | null> {
 
         const url = new URL(tab.url);
         const domain = url.hostname;
-        console.log('[Background] 추출된 도메인:', domain);
         
         return domain;
     } catch (error) {
@@ -1258,7 +1223,7 @@ async function executeScriptInTab(tabId: number, code: string): Promise<any> {
 
 async function initOAuth(provider: string) {
     try {
-        const redirectUri = chrome.identity.getRedirectURL();
+        const redirectUri = chrome.identity.getRedirectURL('auth/v1/callback');
         const { data, error } = await supabase.auth.signInWithOAuth({
             provider: provider as any,
             options: {
@@ -1267,7 +1232,7 @@ async function initOAuth(provider: string) {
                 // queryParams: { prompt: 'select_account' }
             }
         })
-        
+
         if (error) throw error
         if (!data?.url) throw new Error('OAuth URL 생성 실패')
 
@@ -1276,6 +1241,7 @@ async function initOAuth(provider: string) {
             url: data.url,
             interactive: true
         })
+
 
         if (!redirectUrl) {
             throw new Error('리다이렉트 URL을 받지 못했습니다')
@@ -1287,6 +1253,7 @@ async function initOAuth(provider: string) {
         const hashParams = new URLSearchParams(hash)
         const accessToken = hashParams.get('access_token')
         const refreshToken = hashParams.get('refresh_token') || ''
+
 
         if (!accessToken) {
             throw new Error('액세스 토큰을 찾을 수 없습니다')

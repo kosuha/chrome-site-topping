@@ -15,13 +15,11 @@ export interface TabMessageResponse {
 export function useSidePanelMessage() {
   const ensureContentScriptLoaded = useCallback(async (tabId: number): Promise<void> => {
     try {
-      console.log('[SidePanel] Ensuring content script is loaded for tab:', tabId);
       
       // Content script is automatically injected by manifest, but might not be ready yet
       // Just wait a bit for it to initialize
       await new Promise(resolve => setTimeout(resolve, 200));
       
-      console.log('[SidePanel] Content script should be ready now');
     } catch (error) {
       console.warn('[SidePanel] Content script initialization wait failed:', error);
     }
@@ -38,9 +36,7 @@ export function useSidePanelMessage() {
 
       // First attempt: try to send message directly
       try {
-        console.log('[SidePanel] Sending message to tab:', activeTab.id, message);
         const response = await chrome.tabs.sendMessage(activeTab.id, message);
-        console.log('[SidePanel] Received response:', response);
         return response || { success: false, error: 'No response from content script' };
       } catch (connectionError) {
         console.warn('[SidePanel] First attempt failed, trying to inject content script...', connectionError);
@@ -48,9 +44,7 @@ export function useSidePanelMessage() {
         // Second attempt: inject content script and retry
         await ensureContentScriptLoaded(activeTab.id);
         
-        console.log('[SidePanel] Retrying message send after content script injection...');
         const response = await chrome.tabs.sendMessage(activeTab.id, message);
-        console.log('[SidePanel] Retry response:', response);
         return response || { success: false, error: 'No response from content script after retry' };
       }
     } catch (error) {
