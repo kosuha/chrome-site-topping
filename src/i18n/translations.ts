@@ -110,6 +110,7 @@ export const translations = {
     },
     userTab: {
       sections: {
+        language: 'Language',
         account: 'Account',
         membership: 'Membership',
         credits: 'Credits',
@@ -222,7 +223,7 @@ export const translations = {
         updateDomain: 'Failed to update domain.',
         loadWallet: 'Failed to load credit information.',
         deleteAccount: 'Failed to delete account.',
-        loginRequired: 'Please sign in from the User tab (Google or Kakao).',
+        loginRequired: 'Please sign in from the User tab.',
         siteNotFound: 'Site could not be found.',
         domainUnavailable: 'Unable to determine the current domain.',
         scriptMissing: 'Integration script is not installed.',
@@ -233,7 +234,10 @@ export const translations = {
       signIn: {
         title: 'Sign in',
         google: 'Continue with Google',
-        kakao: 'Continue with Kakao',
+      },
+      language: {
+        description: 'Choose the interface language for Site Topping.',
+        hint: 'This preference is saved per browser profile and applies immediately.',
       },
     },
     elementInspector: {
@@ -345,6 +349,7 @@ export const translations = {
     },
     userTab: {
       sections: {
+        language: '언어 설정',
         account: '계정 정보',
         membership: '멤버십',
         credits: '크레딧',
@@ -459,7 +464,7 @@ export const translations = {
         updateDomain: '도메인 수정에 실패했습니다.',
         loadWallet: '크레딧 정보를 불러오지 못했습니다.',
         deleteAccount: '계정 삭제에 실패했습니다.',
-        loginRequired: '로그인이 필요합니다. User 탭에서 Google 또는 Kakao로 로그인해주세요.',
+        loginRequired: '로그인이 필요합니다. User 탭에서 로그인해주세요.',
         siteNotFound: '사이트를 찾을 수 없습니다.',
         domainUnavailable: '현재 도메인을 확인할 수 없습니다.',
         scriptMissing: '연동 스크립트가 설치되지 않았습니다.',
@@ -470,7 +475,10 @@ export const translations = {
       signIn: {
         title: '로그인',
         google: 'Google로 계속하기',
-        kakao: 'Kakao로 계속하기',
+      },
+      language: {
+        description: 'Site Topping 인터페이스에 사용할 언어를 선택하세요.',
+        hint: '이 설정은 브라우저 프로필에 저장되며 즉시 적용됩니다.',
       },
     },
     elementInspector: {

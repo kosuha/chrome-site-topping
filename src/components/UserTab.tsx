@@ -6,6 +6,7 @@ import styles from '../styles/UserTab.module.css'
 import { Copy, Check, Plus, Loader2, AlertCircle, Globe, Trash2, RotateCw, Coins, Crown } from 'lucide-react'
 import useMembership from '../hooks/useMembership'
 import { useTranslations } from '../hooks/useTranslations'
+import LanguageToggle from './LanguageToggle'
 
 export default function UserTab() {
   const { user, loading, error, signInWithProvider, signOut } = useAuth()
@@ -443,11 +444,25 @@ export default function UserTab() {
     ? t.userTab.membership.upgrade
     : t.userTab.membership.subscribe;
 
+  const languageSection = (
+    <div className={styles.section}>
+      <div className={styles.sectionHeader}>
+        <h3 className={styles.sectionTitle}>{t.userTab.sections.language}</h3>
+      </div>
+      <div className={styles.languageContent}>
+        <p className={styles.languageDescription}>{t.userTab.language.description}</p>
+        <LanguageToggle className={styles.languageToggleInline} />
+        <p className={styles.languageHint}>{t.userTab.language.hint}</p>
+      </div>
+    </div>
+  );
+
   if (user) {
     // const selectedSite = connectedSites.find(site => site.id === selectedSiteId); // Removed - not used in new layout
 
     return (
       <div className={styles.container}>
+        {languageSection}
         <div className={styles.section}>
           <div className={styles.sectionHeader}>
             <h3 className={styles.sectionTitle}>{t.userTab.sections.account}</h3>
@@ -837,23 +852,23 @@ export default function UserTab() {
 
   return (
     <div className={styles.container}>
-      <h3>{t.userTab.signIn.title}</h3>
-      {error && <div className={styles.error}>{error}</div>}
-      
-      <div className={styles.providers}>
-        <button 
-          onClick={() => signInWithProvider('google')}
-          className={`${styles.provider} ${styles.google}`}
-        >
-          {t.userTab.signIn.google}
-        </button>
-        
-        <button 
-          onClick={() => signInWithProvider('kakao')}
-          className={`${styles.provider} ${styles.kakao}`}
-        >
-          {t.userTab.signIn.kakao}
-        </button>
+      {languageSection}
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <h3 className={styles.sectionTitle}>{t.userTab.signIn.title}</h3>
+        </div>
+        <div className={styles.signInContent}>
+          {error && <div className={styles.error}>{error}</div>}
+
+          <div className={styles.providers}>
+            <button 
+              onClick={() => signInWithProvider('google')}
+              className={`${styles.provider} ${styles.google}`}
+            >
+              {t.userTab.signIn.google}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )

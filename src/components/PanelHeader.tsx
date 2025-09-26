@@ -11,7 +11,6 @@ import { IconButton, Divider } from './header/HeaderButtons';
 import useMembership from '../hooks/useMembership';
 import { supabase } from '../services/supabase';
 import { useTranslations } from '../hooks/useTranslations';
-import LanguageToggle from './LanguageToggle';
 
 interface PanelHeaderProps {
   // 사이드패널에서는 props 불필요
@@ -261,8 +260,6 @@ export default function PanelHeader({}: PanelHeaderProps) {
           <User size={24} />
         </button>
       </div>
-
-      <LanguageToggle />
 
     </div>
   );

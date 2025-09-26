@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 0;
+  padding: 12px;
   margin-bottom: 24px;
   overflow: visible !important;
 }
@@ -21,6 +21,31 @@
   border-radius: 12px;
   background: rgb(255, 255, 255);
   overflow: visible;
+}
+
+.languageContent {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.languageDescription {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(55, 65, 81, 0.95);
+}
+
+.languageHint {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(107, 114, 128, 0.95);
+}
+
+.languageToggleInline {
+  display: inline-flex;
+  align-self: flex-start;
 }
 
 .card {
@@ -820,6 +845,13 @@
   gap: 12px;
 }
 
+.signInContent {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .provider {
   padding: 12px 16px;
   background: rgba(255, 255, 255, 0.05);
@@ -855,17 +887,6 @@
   color: rgba(60, 60, 60, 1);
 }
 
-.kakao {
-  background: linear-gradient(135deg, rgba(255, 235, 51, 0.5) 0%, rgba(255, 208, 0, 0.5) 100%);
-  border-color: rgb(255, 235, 51, 0.5);
-  color: rgba(60, 60, 60, 1);
-}
-
-.kakao:hover {
-  background: linear-gradient(135deg, rgba(255, 235, 51, 0.7) 0%, rgba(255, 208, 0, 0.7) 100%);
-  border-color: rgba(255, 235, 51, 0.5);
-  color: rgba(60, 60, 60, 1);
-}
 
 /* New Layout Styles */
 .formContainer {

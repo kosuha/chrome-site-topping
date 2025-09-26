@@ -3,7 +3,11 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useTranslations } from '../hooks/useTranslations';
 import styles from '../styles/SidePanel.module.css';
 
-export default function LanguageToggle() {
+interface LanguageToggleProps {
+  className?: string;
+}
+
+export default function LanguageToggle({ className = '' }: LanguageToggleProps) {
   const { language, setLanguage } = useLanguage();
   const t = useTranslations();
 
@@ -13,7 +17,10 @@ export default function LanguageToggle() {
   };
 
   return (
-    <div className={styles.languageToggle} title={t.languageToggle.label}>
+    <div
+      className={`${styles.languageToggle} ${className}`.trim()}
+      title={t.languageToggle.label}
+    >
       {locales.map((locale) => (
         <button
           key={locale}

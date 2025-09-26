@@ -13,7 +13,7 @@ export interface TabMessageResponse {
 
 // Hook for sending messages from side panel to active tab
 export function useSidePanelMessage() {
-  const ensureContentScriptLoaded = useCallback(async (tabId: number): Promise<void> => {
+  const ensureContentScriptLoaded = useCallback(async (_: number): Promise<void> => {
     try {
       
       // Content script is automatically injected by manifest, but might not be ready yet
