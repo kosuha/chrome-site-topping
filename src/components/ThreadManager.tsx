@@ -3,6 +3,8 @@ import { useAppContext } from '../contexts/AppContext';
 import aiService from '../services/aiService';
 import { Plus, MessageSquare, Trash2, Edit2, Check, X } from 'lucide-react';
 import styles from '../styles/ThreadManager.module.css';
+import { useTranslations } from '../hooks/useTranslations';
+import { useLanguage } from '../contexts/LanguageContext';
 
 interface ThreadManagerProps {
   onThreadSelect?: (threadId: string) => void;
@@ -14,6 +16,8 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const t = useTranslations();
+  const { language } = useLanguage();
 
   // 서버에서 스레드 목록 로드
   useEffect(() => {
@@ -31,7 +35,7 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
             // 서버 데이터를 로컬 상태 형식으로 변환
             const serverThreads = threadsArray.map(thread => ({
               id: thread.id,
-              title: thread.title || '새 대화',
+              title: thread.title || '',
               messages: [], // 메시지는 별도로 로드
               createdAt: new Date(thread.created_at || Date.now()),
               updatedAt: new Date(thread.updated_at || Date.now()),
@@ -53,7 +57,7 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
     };
 
     loadThreads();
-  }, []);
+  }, [actions]);
 
   const formatDate = (date: Date) => {
     const now = new Date();
@@ -62,11 +66,12 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
 
-    if (minutes < 1) return '방금 전';
-    if (minutes < 60) return `${minutes}분 전`;
-    if (hours < 24) return `${hours}시간 전`;
-    if (days < 7) return `${days}일 전`;
-    return date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+    if (minutes < 1) return t.threadManager.relativeTime.justNow;
+    if (minutes < 60) return t.threadManager.relativeTime.minutesAgo(minutes);
+    if (hours < 24) return t.threadManager.relativeTime.hoursAgo(hours);
+    if (days < 7) return t.threadManager.relativeTime.daysAgo(days);
+    const locale = language === 'ko' ? 'ko-KR' : 'en-US';
+    return date.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
   };
 
   const handleNewThread = async () => {
@@ -210,7 +215,7 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
 
   const handleDelete = async (threadId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm('이 대화를 삭제하시겠습니까?')) return;
+    if (!confirm(t.threadManager.confirmDelete)) return;
     
     try {
       const response = await aiService.deleteThread(threadId);
@@ -243,7 +248,7 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
           onClick={handleNewThread}
         >
           <Plus size={16} />
-          새 채팅
+          {t.threadManager.newChat}
         </button>
       </div>
 
@@ -251,13 +256,13 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
         {isLoading ? (
           <div className={styles.loadingState}>
             <div className={styles.loader}></div>
-            <p>대화 목록을 불러오는 중...</p>
+            <p>{t.threadManager.loading}</p>
           </div>
         ) : state.chatThreads.length === 0 ? (
           <div className={styles.emptyState}>
             <MessageSquare size={32} className={styles.emptyIcon} />
-            <p className={styles.emptyText}>아직 대화가 없습니다</p>
-            <p className={styles.emptySubtext}>새 채팅을 시작해보세요</p>
+            <p className={styles.emptyText}>{t.threadManager.empty.title}</p>
+            <p className={styles.emptySubtext}>{t.threadManager.empty.description}</p>
           </div>
         ) : (
           state.chatThreads.map((thread) => (
@@ -299,7 +304,7 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
                   ) : (
                     <>
                       <div className={styles.threadTitle}>
-                        {thread.title}
+                        {thread.title || t.chatTab.defaultThreadTitle}
                       </div>
                       <div className={styles.threadMeta}>
                         <span className={styles.threadDate}>
@@ -315,14 +320,14 @@ export default function ThreadManager({ onThreadSelect, onNewThread }: ThreadMan
                     <button
                       className={styles.actionButton}
                       onClick={(e) => handleEditStart(thread.id, thread.title, e)}
-                      title="제목 수정"
+                      title={t.threadManager.actions.rename}
                     >
                       <Edit2 size={14} />
                     </button>
                     <button
                       className={styles.actionButton}
                       onClick={(e) => handleDelete(thread.id, e)}
-                      title="대화 삭제"
+                      title={t.threadManager.actions.delete}
                     >
                       <Trash2 size={14} />
                     </button>

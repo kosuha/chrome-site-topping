@@ -1,4 +1,6 @@
 import { supabase } from './supabase'
+import { translations } from '../i18n/translations'
+import { getCurrentLocale } from '../contexts/LanguageContext'
 
 export interface WalletInfo {
   user_id?: string
@@ -31,7 +33,10 @@ class TokenService {
 
   private async getAuthToken(): Promise<string> {
     const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.access_token) throw new Error('로그인이 필요합니다.')
+    if (!session?.access_token) {
+      const localeStrings = translations[getCurrentLocale()]
+      throw new Error(localeStrings.userTab.errors.loginRequired)
+    }
     return session.access_token
   }
 
@@ -41,7 +46,10 @@ class TokenService {
       headers: { 'Authorization': `Bearer ${token}` }
     })
     const data = await res.json()
-    if (!res.ok || data.status === 'error') throw new Error(data.message || '지갑 조회 실패')
+    if (!res.ok || data.status === 'error') {
+      const localeStrings = translations[getCurrentLocale()]
+      throw new Error(data.message || localeStrings.userTab.errors.loadWallet)
+    }
     return data.data
   }
 
@@ -51,7 +59,10 @@ class TokenService {
       headers: { 'Authorization': `Bearer ${token}` }
     })
     const data = await res.json()
-    if (!res.ok || data.status === 'error') throw new Error(data.message || '거래 내역 조회 실패')
+    if (!res.ok || data.status === 'error') {
+      const localeStrings = translations[getCurrentLocale()]
+      throw new Error(data.message || localeStrings.userTab.errors.walletTransactions)
+    }
     return data.data?.transactions || []
   }
 
@@ -62,7 +73,10 @@ class TokenService {
       headers: { 'Authorization': `Bearer ${token}` }
     })
     const data = await res.json()
-    if (!res.ok || data.status === 'error') throw new Error(data.message || '충전 실패')
+    if (!res.ok || data.status === 'error') {
+      const localeStrings = translations[getCurrentLocale()]
+      throw new Error(data.message || localeStrings.userTab.errors.creditTopUp)
+    }
     return data.data?.wallet
   }
 }

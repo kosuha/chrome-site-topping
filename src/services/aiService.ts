@@ -1,4 +1,6 @@
 import { supabase } from './supabase';
+import { translations } from '../i18n/translations';
+import { getCurrentLocale } from '../contexts/LanguageContext';
 
 export interface SendChatMessageRequest {
   thread_id?: string;
@@ -190,9 +192,10 @@ class AIService {
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' = 'GET',
     body?: any
   ): Promise<T> {
+    const localeStrings = translations[getCurrentLocale()];
     const token = await this.getAuthToken();
     if (!token) {
-      throw new Error('인증이 필요합니다. 로그인해주세요.');
+      throw new Error(localeStrings.userTab.errors.loginRequired);
     }
 
     const config: RequestInit = {
@@ -213,7 +216,8 @@ class AIService {
       const errorData = await response.json().catch(() => ({ message: 'Network error' }));
       const message = (errorData && (errorData.message || errorData.detail)) || `HTTP error! status: ${response.status}`;
       if (response.status === 403) {
-        throw new Error(message || '구독 후 이용 가능한 기능입니다.');
+        const fallback = localeStrings.chatTab.errors.subscriptionRequired;
+        throw new Error(message || fallback);
       }
       throw new Error(message);
     }

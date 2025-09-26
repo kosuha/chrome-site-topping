@@ -5,11 +5,13 @@ import { SiteIntegrationService, Site } from '../services/siteIntegration'
 import styles from '../styles/UserTab.module.css'
 import { Copy, Check, Plus, Loader2, AlertCircle, Globe, Trash2, RotateCw, Coins, Crown } from 'lucide-react'
 import useMembership from '../hooks/useMembership'
+import { useTranslations } from '../hooks/useTranslations'
 
 export default function UserTab() {
   const { user, loading, error, signInWithProvider, signOut } = useAuth()
   const { actions } = useAppContext()
   const { status: membership, isSubscribed, loading: membershipLoading, error: membershipError, refresh: refreshMembership } = useMembership()
+  const t = useTranslations()
   const [currentDomain, setCurrentDomain] = useState<string>('')
   const [integrationScript, setIntegrationScript] = useState<string>('')
   const [connectedSites, setConnectedSites] = useState<Site[]>([])
@@ -42,22 +44,20 @@ export default function UserTab() {
   const siteService = SiteIntegrationService.getInstance()
 
   useEffect(() => {
-    // Chrome Extension에서 현재 활성 탭의 실제 도메인 가져오기
+    // Retrieve the active tab hostname from the browser
     const getCurrentDomain = async () => {
       try {
-        console.log('현재 탭 정보 가져오는 중...');
+        console.log('[UserTab] Fetching active tab information...');
         
-        // Chrome tabs API를 통해 현재 활성 탭의 정보 가져오기
         const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
         
         if (activeTab?.url) {
           const url = new URL(activeTab.url);
           const hostname = url.hostname;
           
-          console.log('활성 탭 URL:', activeTab.url);
-          console.log('감지된 hostname:', hostname);
+          console.log('[UserTab] Active tab URL:', activeTab.url);
+          console.log('[UserTab] Detected hostname:', hostname);
           
-          // 유효한 도메인인지 확인
           if (hostname && 
               hostname !== 'localhost' && 
               !hostname.startsWith('chrome-extension://') && 
@@ -65,21 +65,21 @@ export default function UserTab() {
               !hostname.includes('extension') &&
               hostname.length > 0) {
             
-            console.log('유효한 도메인으로 설정:', hostname);
+            console.log('[UserTab] Using hostname as domain:', hostname);
             setCurrentDomain(hostname);
             setNewSiteDomain(hostname);
           } else {
-            console.log('유효하지 않은 도메인:', hostname, '- 기본값 사용');
+            console.log('[UserTab] Invalid hostname detected:', hostname, '- using default');
             setCurrentDomain('example.com');
             setNewSiteDomain('example.com');
           }
         } else {
-          console.log('활성 탭 URL 없음 - 기본값 사용');
+          console.log('[UserTab] No active tab URL - using default');
           setCurrentDomain('example.com');
           setNewSiteDomain('example.com');
         }
       } catch (error) {
-        console.error('현재 탭 정보 가져오기 실패:', error);
+        console.error('[UserTab] Failed to fetch active tab info:', error);
         setCurrentDomain('example.com');
         setNewSiteDomain('example.com');
       }
@@ -110,10 +110,8 @@ export default function UserTab() {
     setSiteError('')
     try {
       const response = await siteService.getUserSites()
-      // API 응답 구조 확인: sites 배열이 직접 반환됨
       const sitesArray = Array.isArray(response) ? response : ((response as any)?.sites || []);
       
-      // 연결 상태를 실제 스크립트 설치 여부로 확인
       const sitesWithStatus = await Promise.all(sitesArray.map(async (site: any) => {
         try {
           const connectionResult = await siteService.checkSiteConnection(site.id)
@@ -127,7 +125,7 @@ export default function UserTab() {
           return {
             ...site,
             connection_status: 'disconnected' as const,
-            error_message: '연동 상태 확인 실패',
+            error_message: t.userTab.errors.connectionCheck,
             last_checked_at: new Date().toISOString()
           }
         }
@@ -135,26 +133,24 @@ export default function UserTab() {
       
       setConnectedSites(sitesWithStatus)
       
-      // 현재 도메인과 일치하는 사이트를 우선 선택
       const currentSite = sitesWithStatus.find((site: any) => site.domain === currentDomain)
       if (currentSite) {
         setSelectedSiteId(currentSite.id)
         await loadSiteScript(currentSite)
         if (currentSite.site_code) {
-          console.log('🎯 [UserTab] 자동 선택된 사이트:', currentSite.site_code)
+          console.log('🎯 [UserTab] Auto-selected site:', currentSite.site_code)
           actions.setSelectedSiteCode(currentSite.site_code)
         }
       } else if (sitesWithStatus.length > 0) {
-        // 현재 도메인과 일치하는 사이트가 없으면 첫 번째 사이트 선택
         setSelectedSiteId(sitesWithStatus[0].id)
         await loadSiteScript(sitesWithStatus[0])
         if (sitesWithStatus[0].site_code) {
-          console.log('🎯 [UserTab] 첫 번째 사이트 자동 선택:', sitesWithStatus[0].site_code)
+          console.log('🎯 [UserTab] Auto-selected first site:', sitesWithStatus[0].site_code)
           actions.setSelectedSiteCode(sitesWithStatus[0].site_code)
         }
       }
     } catch (err) {
-      setSiteError(err instanceof Error ? err.message : '사이트 목록을 불러오는 중 오류가 발생했습니다.')
+      setSiteError(err instanceof Error ? err.message : t.userTab.errors.loadSites)
     }
   }
 
@@ -179,7 +175,7 @@ export default function UserTab() {
         created_at: tx.created_at,
       })))
     } catch (e) {
-      setWalletError(e instanceof Error ? e.message : '크레딧 정보를 불러오지 못했습니다')
+      setWalletError(e instanceof Error ? e.message : t.userTab.credits.errors.loadFailed)
     } finally {
       setWalletLoading(false)
     }
@@ -205,7 +201,7 @@ export default function UserTab() {
       
       // 선택된 사이트 코드 설정 (AppContext useEffect에서 자동으로 히스토리 로드됨)
       if (selectedSite.site_code) {
-        console.log('🎯 [UserTab] 사이트 선택됨:', selectedSite.site_code)
+        console.log('🎯 [UserTab] Site selected:', selectedSite.site_code)
         actions.setSelectedSiteCode(selectedSite.site_code)
       }
     }
@@ -221,7 +217,7 @@ export default function UserTab() {
         setTimeout(() => setCopiedScript(false), 1500)
       })
       .catch(err => {
-        console.error('클립보드 복사 실패:', err)
+        console.error('[UserTab] Clipboard copy failed:', err)
       })
   }
 
@@ -269,13 +265,12 @@ export default function UserTab() {
         .replace(/\/.*$/, '');
 
       if (!sanitizedDomain) {
-        setSiteError('유효한 도메인을 입력해주세요.');
+        setSiteError(t.userTab.errors.invalidDomain);
         return;
       }
 
-      // 중복 도메인 체크
       if (connectedSites.some(site => site.domain === sanitizedDomain)) {
-        setSiteError('이미 등록된 도메인입니다.');
+        setSiteError(t.userTab.errors.duplicateDomain);
         return;
       }
 
@@ -288,8 +283,8 @@ export default function UserTab() {
       setNewSiteDomain('');
       
     } catch (error) {
-      console.error('사이트 추가 실패:', error);
-      setSiteError(error instanceof Error ? error.message : '사이트 추가에 실패했습니다.');
+      console.error('[UserTab] Failed to add site:', error);
+      setSiteError(error instanceof Error ? error.message : t.userTab.errors.addSite);
     } finally {
       setIsAddingSite(false);
     }
@@ -298,7 +293,7 @@ export default function UserTab() {
   const handleDeleteSite = async (siteId: string, siteDomain: string) => {
     if (isDeletingSite || !siteId) return;
 
-    const confirmed = window.confirm(`정말로 "${siteDomain}" 사이트를 삭제하시겠습니까?\n\n경고: 이 작업은 되돌릴 수 없습니다.`);
+    const confirmed = window.confirm(t.userTab.sites.deleteConfirm(siteDomain));
     
     if (!confirmed) return;
 
@@ -318,8 +313,8 @@ export default function UserTab() {
       await loadConnectedSites();
       
     } catch (error) {
-      console.error('사이트 삭제 실패:', error);
-      setSiteError(error instanceof Error ? error.message : '사이트 삭제에 실패했습니다.');
+      console.error('[UserTab] Failed to delete site:', error);
+      setSiteError(error instanceof Error ? error.message : t.userTab.errors.deleteSite);
     } finally {
       setIsDeletingSite(null);
     }
@@ -344,13 +339,12 @@ export default function UserTab() {
         .replace(/\/.*$/, '')
 
       if (!sanitizedDomain) {
-        setSiteError('유효한 도메인을 입력해주세요.')
+        setSiteError(t.userTab.errors.invalidDomain)
         return
       }
 
-      // 중복 도메인 체크
       if (connectedSites.some(site => site.domain === sanitizedDomain && site.id !== siteId)) {
-        setSiteError('이미 등록된 도메인입니다.')
+        setSiteError(t.userTab.errors.duplicateDomain)
         return
       }
 
@@ -360,8 +354,8 @@ export default function UserTab() {
       setEditingSiteId(null)
       setEditingDomain('')
     } catch (error) {
-      console.error('도메인 수정 실패:', error)
-      setSiteError(error instanceof Error ? error.message : '도메인 수정에 실패했습니다.')
+      console.error('[UserTab] Failed to update domain:', error)
+      setSiteError(error instanceof Error ? error.message : t.userTab.errors.updateDomain)
     } finally {
       setIsUpdatingDomain(false)
     }
@@ -375,26 +369,22 @@ export default function UserTab() {
   const getStatusText = (status: string) => {
     switch (status) {
       case 'connected':
-        return '연결됨'
+        return t.userTab.sites.status.connected
       case 'checking':
-        return '확인중'
+        return t.userTab.sites.status.checking
       default:
-        return '연결안됨'
+        return t.userTab.sites.status.disconnected
     }
   }
 
   const handleDeleteAccount = async () => {
     if (isDeletingAccount) return;
 
-    const confirmed = window.confirm(
-      '정말로 계정을 삭제하시겠습니까?\n\n경고: 이 작업은 되돌릴 수 없습니다.\n- 모든 사이트 연동 정보가 삭제됩니다\n- 모든 채팅 기록이 삭제됩니다\n- 모든 스크립트 데이터가 삭제됩니다'
-    );
+    const confirmed = window.confirm(t.userTab.account.deleteConfirmPrimary);
     
     if (!confirmed) return;
 
-    const doubleConfirmed = window.confirm(
-      '마지막 확인입니다.\n\n계정을 완전히 삭제하시겠습니까?\n\n삭제된 데이터는 복구할 수 없습니다.'
-    );
+    const doubleConfirmed = window.confirm(t.userTab.account.deleteConfirmSecondary);
 
     if (!doubleConfirmed) return;
 
@@ -407,7 +397,7 @@ export default function UserTab() {
       const { data: { session } } = await supabase.auth.getSession()
       
       if (!session?.access_token) {
-        throw new Error('인증 토큰을 찾을 수 없습니다. 다시 로그인해주세요.');
+        throw new Error(t.userTab.account.errors.missingSession);
       }
 
       const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/auth/account`, {
@@ -420,40 +410,62 @@ export default function UserTab() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || '계정 삭제에 실패했습니다');
+        throw new Error(errorData.detail || t.userTab.errors.deleteAccount);
       }
 
-      // 성공 시 로그아웃 처리
-      alert('계정이 성공적으로 삭제되었습니다.');
+      alert(t.userTab.account.deleteSuccess);
       await signOut();
       
     } catch (error) {
-      console.error('계정 삭제 실패:', error);
-      setSiteError(error instanceof Error ? error.message : '계정 삭제에 실패했습니다.');
+      console.error('[UserTab] Failed to delete account:', error);
+      setSiteError(error instanceof Error ? error.message : t.userTab.errors.deleteAccount);
     } finally {
       setIsDeletingAccount(false);
     }
   };
 
   if (loading) {
-    return <div className={styles.loading}>Loading...</div>
+    return <div className={styles.loading}>{t.common.loading}</div>
   }
+
+  const membershipStatusLabel = membershipLoading
+    ? t.userTab.membership.statusLoading
+    : (isSubscribed ? t.userTab.membership.statusActive : t.userTab.membership.statusFree);
+
+  const membershipDetail = membershipLoading
+    ? ''
+    : (!membership
+        ? t.userTab.membership.statusUnknown
+        : membership.is_expired
+          ? t.userTab.membership.statusExpired
+          : membership.expires_at
+            ? (() => {
+                const parsedDate = new Date(membership.expires_at);
+                const label = isNaN(parsedDate.getTime())
+                  ? membership.expires_at
+                  : parsedDate.toLocaleDateString();
+                return t.userTab.membership.expiresAt(label, membership.days_remaining ?? null);
+              })()
+            : t.userTab.membership.statusUnlimited);
+
+  const subscriptionButtonLabel = isSubscribed
+    ? t.userTab.membership.upgrade
+    : t.userTab.membership.subscribe;
 
   if (user) {
     // const selectedSite = connectedSites.find(site => site.id === selectedSiteId); // Removed - not used in new layout
 
     return (
       <div className={styles.container}>
-        {/* 사용자 정보 섹션 */}
         <div className={styles.section}>
           <div className={styles.sectionHeader}>
-            <h3 className={styles.sectionTitle}>계정 정보</h3>
+            <h3 className={styles.sectionTitle}>{t.userTab.sections.account}</h3>
           </div>
           <div className={styles.userInfo}>
             <div className={styles.userEmail}>{user.email}</div>
             <div className={styles.accountActions}>
               <button onClick={signOut} className={styles.signOutButton}>
-                로그아웃
+                {t.userTab.account.signOut}
               </button>
               <button 
                 onClick={handleDeleteAccount}
@@ -463,20 +475,18 @@ export default function UserTab() {
                 {isDeletingAccount ? (
                   <>
                     <Loader2 className={styles.spinnerIcon} />
-                    삭제 중...
+                    {t.userTab.account.deleting}
                   </>
                 ) : (
-                  '회원탈퇴'
+                  t.userTab.account.delete
                 )}
               </button>
             </div>
           </div>
         </div>
-
-        {/* 멤버십 상태 섹션 */}
         <div className={styles.section}>
           <div className={styles.sectionHeader}>
-            <h3 className={styles.sectionTitle}>멤버십</h3>
+            <h3 className={styles.sectionTitle}>{t.userTab.sections.membership}</h3>
           </div>
           <div className={styles.card}>
             {membershipError && (
@@ -490,19 +500,10 @@ export default function UserTab() {
                 <Crown size={18} style={{ color: isSubscribed ? '#fbbf24' : '#9ca3af' }} />
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 600 }}>
-                    {membershipLoading ? '상태 불러오는 중...' : (isSubscribed ? '구독 활성화' : '무료 플랜')}
+                    {membershipStatusLabel}
                   </div>
                   <div style={{ fontSize: 12, color: '#666' }}>
-                    {membershipLoading ? '' : (() => {
-                      if (!membership) return '로그인 상태에서 확인됩니다.';
-                      if (membership.is_expired) return '만료됨';
-                      if (membership.expires_at) {
-                        const dd = membership.days_remaining ?? null;
-                        const d = new Date(membership.expires_at);
-                        return `만료일: ${isNaN(d.getTime()) ? membership.expires_at : d.toLocaleDateString()}${dd !== null ? ` (D-${dd})` : ''}`;
-                      }
-                      return '제한 없음';
-                    })()}
+                    {membershipDetail}
                   </div>
                 </div>
               </div>
@@ -513,38 +514,36 @@ export default function UserTab() {
                     if (url) {
                       window.open(url, '_blank');
                     } else {
-                      alert('구독/업그레이드는 웹 서비스에서 진행해주세요. (환경변수 VITE_SUBSCRIBE_URL 설정 시 이 버튼으로 이동합니다)');
+                      alert(t.userTab.membership.subscribeInfo);
                     }
                   }}
                   className={styles.signOutButton}
-                  title={isSubscribed ? '업그레이드/연장' : '구독하기'}
+                  title={subscriptionButtonLabel}
                 >
-                  {isSubscribed ? '업그레이드/연장' : '구독하기'}
+                  {subscriptionButtonLabel}
                 </button>
                 <button
                   onClick={() => void refreshMembership()}
                   className={styles.refreshWalletButton}
                   disabled={membershipLoading}
-                  title="멤버십 상태 새로고침"
+                  title={t.userTab.membership.refreshTooltip}
                 >
                   {membershipLoading ? <Loader2 className={styles.spinnerIcon} /> : <RotateCw size={14} />}
-                  새로고침
+                  {t.common.refresh}
                 </button>
               </div>
             </div>
             {!isSubscribed && (
               <div style={{ marginTop: 10, fontSize: 12, color: '#666' }}>
-                구독 시 AI 채팅, 배포, 버전 관리 기능을 사용할 수 있습니다.
+                {t.userTab.membership.benefits}
               </div>
             )}
           </div>
         </div>
 
-        {/* 현재 도메인 정보 */}
-        {/* 크레딧 정보 */}
         <div className={styles.section}>
           <div className={styles.sectionHeader}>
-            <h3 className={styles.sectionTitle}>크레딧</h3>
+            <h3 className={styles.sectionTitle}>{t.userTab.sections.credits}</h3>
           </div>
           <div className={styles.card}>
             {walletError && (
@@ -555,12 +554,12 @@ export default function UserTab() {
             )}
             <div className={styles.walletGrid}>
               <div className={styles.walletCard}>
-                <div className={styles.walletLabel}><Coins size={16} /> 잔액</div>
-                <div className={styles.walletValue}>{walletLoading ? '...' : walletBalance.toFixed(2)}<span className={styles.walletUnit}> 크레딧</span></div>
+                <div className={styles.walletLabel}><Coins size={16} /> {t.userTab.credits.balanceLabel}</div>
+                <div className={styles.walletValue}>{walletLoading ? '...' : walletBalance.toFixed(2)}<span className={styles.walletUnit}> {t.common.creditsUnit}</span></div>
               </div>
               <div className={styles.walletCard}>
-                <div className={styles.walletLabel}>누적 사용</div>
-                <div className={styles.walletValue}>{walletLoading ? '...' : walletTotalSpent.toFixed(2)}<span className={styles.walletUnit}> 크레딧</span></div>
+                <div className={styles.walletLabel}>{t.userTab.credits.spentLabel}</div>
+                <div className={styles.walletValue}>{walletLoading ? '...' : walletTotalSpent.toFixed(2)}<span className={styles.walletUnit}> {t.common.creditsUnit}</span></div>
               </div>
               <div className={styles.walletActions}>
                 <button
@@ -569,46 +568,46 @@ export default function UserTab() {
                     if (url) {
                       window.open(url, '_blank')
                     } else {
-                      alert('크레딧 구매는 웹 서비스에서 진행해주세요. (환경변수 VITE_CREDIT_TOPUP_URL 설정 시 이 버튼으로 이동합니다)')
+                      alert(t.userTab.credits.purchaseInfo)
                     }
                   }}
                   className={styles.walletTopupButton}
-                  title="크레딧 구매"
+                  title={t.userTab.credits.purchaseTitle}
                 >
-                  크레딧 구매
+                  {t.userTab.credits.purchase}
                 </button>
                 <button
                   onClick={fetchWalletAndTransactions}
                   className={styles.refreshWalletButton}
                   disabled={walletLoading}
-                  title="크레딧 정보 새로고침"
+                  title={t.userTab.credits.refreshTooltip}
                 >
                   {walletLoading ? <Loader2 className={styles.spinnerIcon} /> : <RotateCw size={14} />}
-                  새로고침
+                  {t.common.refresh}
                 </button>
               </div>
             </div>
 
             <div className={styles.walletTxSection}>
-              <div className={styles.walletTxHeader}>최근 거래</div>
+              <div className={styles.walletTxHeader}>{t.userTab.credits.recentTransactions}</div>
               {recentTxs.length === 0 ? (
-                <div className={styles.walletTxEmpty}>표시할 거래가 없습니다</div>
+                <div className={styles.walletTxEmpty}>{t.userTab.credits.noTransactions}</div>
               ) : (
                 <table className={styles.walletTxTable}>
                   <thead>
                     <tr>
-                      <th>일시</th>
-                      <th>유형</th>
-                      <th>금액</th>
-                      <th>모델</th>
+                      <th>{t.userTab.credits.headers.date}</th>
+                      <th>{t.userTab.credits.headers.type}</th>
+                      <th>{t.userTab.credits.headers.amount}</th>
+                      <th>{t.userTab.credits.headers.model}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {recentTxs.map(tx => (
                       <tr key={tx.id}>
                         <td>{new Date(tx.created_at).toLocaleString()}</td>
-                        <td className={tx.type === 'debit' ? styles.txDebit : styles.txCredit}>{tx.type === 'debit' ? '차감' : '충전'}</td>
-                        <td>{tx.type === 'debit' ? '-' : '+'}{Math.abs(tx.amount_usd).toFixed(3)} 크레딧</td>
+                        <td className={tx.type === 'debit' ? styles.txDebit : styles.txCredit}>{tx.type === 'debit' ? t.userTab.credits.type.debit : t.userTab.credits.type.credit}</td>
+                        <td>{tx.type === 'debit' ? '-' : '+'}{Math.abs(tx.amount_usd).toFixed(3)} {t.common.creditsUnit}</td>
                         <td>{tx.model_name || '-'}</td>
                       </tr>
                     ))}
@@ -619,19 +618,16 @@ export default function UserTab() {
           </div>
         </div>
 
-        {/* 현재 도메인 정보 */}
         <div className={styles.section}>
           <div className={styles.sectionHeader}>
-            <h3 className={styles.sectionTitle}>현재 도메인</h3>
+            <h3 className={styles.sectionTitle}>{t.userTab.sections.currentDomain}</h3>
           </div>
           <div className={styles.domainInfo}>
             <span className={styles.domainText}>{currentDomain}</span>
             {getCurrentSiteStatus() ? (() => {
               const status = getCurrentSiteStatus()!
               const statusClass = status.connection_status || 'disconnected'
-              const statusText = status.connection_status === 'connected' ? '연동됨' :
-                               status.connection_status === 'checking' ? '확인중' : 
-                               '연동 필요'
+              const statusText = getStatusText(status.connection_status || 'disconnected')
               return (
                 <div className={styles.statusRow}>
                   <span className={`${styles.statusBadge} ${styles[statusClass]}`}>
@@ -641,7 +637,7 @@ export default function UserTab() {
                     className={styles.refreshButton}
                     onClick={refreshCurrentSiteStatus}
                     disabled={isChecking}
-                    title="연동 상태 다시 확인"
+                    title={t.userTab.currentDomain.refreshTooltip}
                   >
                     <RotateCw size={14} />
                   </button>
@@ -649,32 +645,31 @@ export default function UserTab() {
               )
             })() : (
               <span className={`${styles.statusBadge} ${styles.disconnected}`}>
-                등록 필요
+                {t.userTab.currentDomain.missing}
               </span>
             )}
           </div>
         </div>
 
-        {/* 웹사이트 추가 섹션 */}
         <div className={styles.section}>
           <div className={styles.sectionHeader}>
-            <h3 className={styles.sectionTitle}>웹사이트 추가</h3>
+            <h3 className={styles.sectionTitle}>{t.userTab.sections.addSite}</h3>
           </div>
           <div className={styles.card}>
             <form onSubmit={(e) => { e.preventDefault(); handleAddSite(); }} className={styles.formContainer}>
               <div className={styles.inputContainer}>
-                <label htmlFor="domain-input" className={styles.inputLabel}>도메인</label>
+                <label htmlFor="domain-input" className={styles.inputLabel}>{t.userTab.addSite.label}</label>
                 <input
                   id="domain-input"
                   type="text"
-                  placeholder="도메인 입력 (예: example.com)"
+                  placeholder={t.userTab.addSite.placeholder}
                   value={newSiteDomain}
                   onChange={(e) => setNewSiteDomain(e.target.value)}
                   disabled={isAddingSite}
                   className={styles.domainInput}
                 />
                 <p className={styles.hint}>
-                  도메인만 입력하세요 (http://, www. 제외)
+                  {t.userTab.addSite.hint}
                 </p>
               </div>
 
@@ -693,12 +688,12 @@ export default function UserTab() {
                 {isAddingSite ? (
                   <>
                     <Loader2 className={styles.spinnerIcon} />
-                    추가 중...
+                    {t.userTab.addSite.submitting}
                   </>
                 ) : (
                   <>
                     <Plus className={styles.plusIcon} />
-                    웹사이트 추가
+                    {t.userTab.addSite.submit}
                   </>
                 )}
               </button>
@@ -706,25 +701,24 @@ export default function UserTab() {
           </div>
         </div>
 
-        {/* 사이트 연동 설정 */}
         <div className={styles.section}>
           <div className={styles.sectionHeader}>
-            <h3 className={styles.sectionTitle}>연결된 웹사이트</h3>
+            <h3 className={styles.sectionTitle}>{t.userTab.sections.sites}</h3>
           </div>
           
           <div className={styles.card}>
             {connectedSites.length === 0 ? (
               <div className={styles.emptyState}>
                 <Globe className={styles.emptyIcon} />
-                <p className={styles.emptyTitle}>연결된 사이트가 없습니다</p>
-                <p className={styles.emptyDesc}>위에서 웹사이트를 추가해보세요</p>
+                <p className={styles.emptyTitle}>{t.userTab.sites.emptyTitle}</p>
+                <p className={styles.emptyDesc}>{t.userTab.sites.emptyDescription}</p>
               </div>
             ) : (
               <div className={styles.sitesContainer}>
                 {/* Site Selection */}
                 <div className={styles.siteSelection}>
                   <label htmlFor="site-select" className={styles.selectLabel}>
-                    사이트 선택
+                    {t.userTab.sites.selectLabel}
                   </label>
                   <select
                     id="site-select"
@@ -732,7 +726,7 @@ export default function UserTab() {
                     onChange={(e) => handleSiteSelect(e.target.value)}
                     className={styles.siteSelect}
                   >
-                    <option value="">사이트를 선택하세요</option>
+                    <option value="">{t.userTab.sites.selectPlaceholder}</option>
                     {connectedSites.map((site) => (
                       <option key={site.id} value={site.id}>
                         {site.domain === currentDomain ? '📍 ' : ''}{site.domain} - {getStatusText(site.connection_status || 'disconnected')}
@@ -746,17 +740,17 @@ export default function UserTab() {
                   const selected = connectedSites.find(site => site.id === selectedSiteId);
                   return selected ? (
                     <div className={styles.selectedSiteContainer}>
-                      <h3 className={styles.siteInfoTitle}>사이트 정보</h3>
+                      <h3 className={styles.siteInfoTitle}>{t.userTab.sites.infoTitle}</h3>
                       <div className={styles.siteInfoGrid}>
                         <div className={styles.infoRow}>
-                          <label className={styles.infoLabel}>도메인</label>
+                          <label className={styles.infoLabel}>{t.userTab.sites.domainLabel}</label>
                           {editingSiteId === selected.id ? (
                             <div className={styles.editContainer}>
                               <input
                                 value={editingDomain}
                                 onChange={(e) => setEditingDomain(e.target.value)}
                                 className={styles.editInput}
-                                placeholder="도메인을 입력하세요"
+                                placeholder={t.userTab.sites.domainPlaceholder}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') {
                                     handleSaveEditDomain(selected.id);
@@ -789,7 +783,7 @@ export default function UserTab() {
                           )}
                         </div>
                         <div className={styles.infoRow}>
-                          <label className={styles.infoLabel}>연동 스크립트</label>
+                          <label className={styles.infoLabel}>{t.userTab.sites.scriptLabel}</label>
                           <div className={styles.scriptRow}>
                             <input
                               value={generateScript(selected.site_code || '')}
@@ -798,7 +792,7 @@ export default function UserTab() {
                             />
                             <button
                               onClick={() => handleCopyScript(selected.site_code)}
-                              title="스크립트 복사"
+                              title={t.userTab.sites.copyScriptTooltip}
                               className={styles.copyScriptButton}
                             >
                               {copiedScript ? (
@@ -809,9 +803,7 @@ export default function UserTab() {
                             </button>
                           </div>
                           <div>
-                            <p className={styles.scriptHint}>
-                              이 스크립트를 웹사이트의 <code>&lt;/body&gt;</code> 태그 바로 앞에 추가하세요.
-                            </p>
+                            <p className={styles.scriptHint}>{t.userTab.sites.scriptHint}</p>
                           </div>
                         </div>
                         
@@ -827,7 +819,7 @@ export default function UserTab() {
                               ) : (
                                 <>
                                   <Trash2 className={styles.trashIcon} />
-                                  삭제
+                                  {t.userTab.sites.delete}
                                 </>
                               )}
                             </button>
@@ -835,7 +827,7 @@ export default function UserTab() {
                               onClick={() => handleStartEditDomain(selected)}
                               className={styles.editActionButton}
                             >
-                              도메인 수정
+                              {t.userTab.sites.editDomain}
                             </button>
                           </div>
                         </div>
@@ -854,7 +846,7 @@ export default function UserTab() {
 
   return (
     <div className={styles.container}>
-      <h3>Sign In</h3>
+      <h3>{t.userTab.signIn.title}</h3>
       {error && <div className={styles.error}>{error}</div>}
       
       <div className={styles.providers}>
@@ -862,14 +854,14 @@ export default function UserTab() {
           onClick={() => signInWithProvider('google')}
           className={`${styles.provider} ${styles.google}`}
         >
-          Continue with Google
+          {t.userTab.signIn.google}
         </button>
         
         <button 
           onClick={() => signInWithProvider('kakao')}
           className={`${styles.provider} ${styles.kakao}`}
         >
-          Continue with Kakao
+          {t.userTab.signIn.kakao}
         </button>
       </div>
     </div>

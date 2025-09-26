@@ -18,6 +18,10 @@ export class SiteIntegrationService {
   private static instance: SiteIntegrationService
   private baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
   
+  private getTranslations() {
+    return translations[getCurrentLocale()]
+  }
+
   public static getInstance(): SiteIntegrationService {
     if (!SiteIntegrationService.instance) {
       SiteIntegrationService.instance = new SiteIntegrationService()
@@ -26,7 +30,8 @@ export class SiteIntegrationService {
   }
 
   private async getAuthToken(): Promise<string> {
-    // Supabase 세션에서 토큰 가져오기
+    const localeStrings = this.getTranslations();
+
     try {
       const { supabase } = await import('./supabase')
       const { data: { session } } = await supabase.auth.getSession()
@@ -35,7 +40,7 @@ export class SiteIntegrationService {
         return session.access_token
       }
     } catch (error) {
-      console.error('Supabase session 가져오기 실패:', error)
+      console.error('[SiteIntegration] Failed to obtain Supabase session:', error)
     }
 
     // 대안: Chrome storage에서 직접 가져오기
@@ -57,14 +62,15 @@ export class SiteIntegrationService {
         }
         
       } catch (error) {
-        console.error('Chrome storage 접근 오류:', error)
+        console.error('[SiteIntegration] Chrome storage access failed:', error)
       }
     }
     
-    throw new Error('인증 토큰을 찾을 수 없습니다. 로그인이 필요합니다.')
+    throw new Error(localeStrings.userTab.account.errors.missingSession)
   }
 
   private async apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    const localeStrings = this.getTranslations();
     try {
       const token = await this.getAuthToken()
       
@@ -97,8 +103,8 @@ export class SiteIntegrationService {
       }
       return data.data || data
     } catch (error) {
-      if (error instanceof Error && error.message.includes('인증 토큰을 찾을 수 없습니다')) {
-        throw new Error('로그인이 필요합니다. UserTab에서 Google 또는 Kakao로 로그인해주세요.')
+      if (error instanceof Error && error.message.includes(localeStrings.userTab.account.errors.missingSession)) {
+        throw new Error(localeStrings.userTab.errors.loginRequired)
       }
       throw error
     }
@@ -148,7 +154,8 @@ export class SiteIntegrationService {
     const sites = await this.getUserSites()
     const site = sites.find(s => s.id === siteId)
     if (!site) {
-      return { connected: false, error: '사이트를 찾을 수 없습니다' }
+      const localeStrings = this.getTranslations();
+      return { connected: false, error: localeStrings.userTab.errors.siteNotFound }
     }
 
     // Chrome Extension에서 현재 활성 탭의 도메인 가져오기
@@ -167,15 +174,17 @@ export class SiteIntegrationService {
         currentDomain = window.location.hostname;
       }
     } catch (error) {
-      console.error('도메인 가져오기 실패:', error);
-      return { connected: false, error: '현재 도메인을 확인할 수 없습니다' };
+      console.error('[SiteIntegration] Failed to obtain domain:', error);
+      const localeStrings = this.getTranslations();
+      return { connected: false, error: localeStrings.userTab.errors.domainUnavailable };
     }
     
     const isDomainMatch = currentDomain === site.domain
     
     if (!isDomainMatch) {
       // 도메인이 다르면 연결 안됨
-      return { connected: false, error: `현재 도메인(${currentDomain})이 사이트 도메인(${site.domain})과 다릅니다` }
+      const localeStrings = this.getTranslations();
+      return { connected: false, error: localeStrings.userTab.errors.domainMismatch(currentDomain, site.domain) }
     }
 
     // 도메인이 일치하면 실제 스크립트 존재 여부 확인
@@ -185,10 +194,12 @@ export class SiteIntegrationService {
       if (isScriptInstalled) {
         return { connected: true }
       } else {
-        return { connected: false, error: '연동 스크립트가 설치되지 않았습니다' }
+        const localeStrings = this.getTranslations();
+        return { connected: false, error: localeStrings.userTab.errors.scriptMissing }
       }
     } catch (error) {
-      return { connected: false, error: '연동 상태 확인 중 오류가 발생했습니다' }
+      const localeStrings = this.getTranslations();
+      return { connected: false, error: localeStrings.userTab.errors.connectionCheck }
     }
   }
 
@@ -289,3 +300,5 @@ export class SiteIntegrationService {
     }
   }
 }
+import { translations } from '../i18n/translations'
+import { getCurrentLocale } from '../contexts/LanguageContext'

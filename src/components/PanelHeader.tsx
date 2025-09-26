@@ -10,6 +10,8 @@ import { useElementInspector } from '../hooks/useElementInspector';
 import { IconButton, Divider } from './header/HeaderButtons';
 import useMembership from '../hooks/useMembership';
 import { supabase } from '../services/supabase';
+import { useTranslations } from '../hooks/useTranslations';
+import LanguageToggle from './LanguageToggle';
 
 interface PanelHeaderProps {
   // 사이드패널에서는 props 불필요
@@ -23,6 +25,7 @@ export default function PanelHeader({}: PanelHeaderProps) {
   const [deployFailed, setDeployFailed] = useState(false);
   const siteService = SiteIntegrationService.getInstance();
   const { isSubscribed } = useMembership();
+  const t = useTranslations();
 
   const { active: isInspectorActive, toggle: toggleInspector, setActive: setInspectorActive } = useElementInspector();
   const [isToggling, setIsToggling] = useState(false);
@@ -46,9 +49,9 @@ export default function PanelHeader({}: PanelHeaderProps) {
       if (!isSubscribed) {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) {
-          alert('배포는 로그인 후 이용 가능합니다. User 탭에서 로그인해주세요.');
+          alert(t.panelHeader.alerts.loginRequired);
         } else {
-          alert('배포는 구독 기능입니다. User 탭에서 구독을 진행해주세요.');
+          alert(t.panelHeader.alerts.subscriptionRequired);
         }
         setDeployFailed(true);
         return;
@@ -56,7 +59,7 @@ export default function PanelHeader({}: PanelHeaderProps) {
 
       // 선택된 사이트 코드가 있는지 확인
       if (!state.selectedSiteCode) {
-        alert('배포할 사이트를 선택해주세요.\n\n사용자 탭에서 사이트를 선택하세요.');
+        alert(t.panelHeader.alerts.selectSite);
         setDeployFailed(true);
         return;
       }
@@ -75,8 +78,9 @@ export default function PanelHeader({}: PanelHeaderProps) {
 
     } catch (error) {
       console.error('❌ [PanelHeader] 배포 실패:', error);
-      const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
-      alert(`배포 실패: ${errorMessage}`);
+      const rawMessage = error instanceof Error ? error.message : '';
+      const message = rawMessage || t.common.unknownError;
+      alert(t.panelHeader.alerts.deployFailed(message));
       setDeployFailed(true);
     } finally {
       setIsDeploying(false);
@@ -174,7 +178,7 @@ export default function PanelHeader({}: PanelHeaderProps) {
           active={state.isPreviewMode}
           loading={isToggling}
           onClick={handlePreviewToggle}
-          title={isToggling ? '처리 중...' : (state.isPreviewMode ? '미리보기 숨기기' : '미리보기 보기')}
+          title={isToggling ? t.panelHeader.tooltips.previewProcessing : (state.isPreviewMode ? t.panelHeader.tooltips.previewHide : t.panelHeader.tooltips.previewShow)}
           className={state.isPreviewMode ? styles.activePreview : ''}
         >
           {state.isPreviewMode ? <Eye size={24} /> : <EyeClosed size={24} />}
@@ -183,7 +187,7 @@ export default function PanelHeader({}: PanelHeaderProps) {
           loading={isDeploying}
           disabled={!isSubscribed}
           onClick={handleDeploy}
-          title={isDeploying ? '배포 중...' : (!isSubscribed ? '구독 필요' : '배포')}
+          title={isDeploying ? t.panelHeader.tooltips.deploying : (!isSubscribed ? t.panelHeader.tooltips.subscriptionRequired : t.panelHeader.tooltips.deploy)}
         >
           {deploySuccess ? <Check size={24} className={styles.successCheck} /> : deployFailed ? <X size={24} className={styles.failedX} /> : <Upload size={24} />}
         </IconButton>
@@ -191,7 +195,7 @@ export default function PanelHeader({}: PanelHeaderProps) {
         <IconButton
           active={isInspectorActive}
           onClick={handleInspectorToggle}
-          title={isInspectorActive ? '요소 선택 종료' : '요소 선택'}
+          title={isInspectorActive ? t.panelHeader.tooltips.inspectorStop : t.panelHeader.tooltips.inspectorStart}
         >
           <SquareDashedMousePointer size={24} />
         </IconButton>
@@ -210,7 +214,7 @@ export default function PanelHeader({}: PanelHeaderProps) {
               setIsNavigatingBack(false);
             }
           }}
-          title={isNavigatingBack ? '이동 중...' : '코드 변경 이전으로'}
+          title={isNavigatingBack ? t.panelHeader.tooltips.historyProcessing : t.panelHeader.tooltips.historyBack}
         >
           <ArrowBigLeft size={24} />
         </IconButton>
@@ -227,7 +231,7 @@ export default function PanelHeader({}: PanelHeaderProps) {
               setIsNavigatingForward(false);
             }
           }}
-          title={isNavigatingForward ? '이동 중...' : '코드 변경 이후로'}
+          title={isNavigatingForward ? t.panelHeader.tooltips.historyProcessing : t.panelHeader.tooltips.historyForward}
         >
           <ArrowBigRight size={24} />
         </IconButton>
@@ -259,6 +263,8 @@ export default function PanelHeader({}: PanelHeaderProps) {
           <User size={24} />
         </button>
       </div>
+
+      <LanguageToggle />
 
     </div>
   );

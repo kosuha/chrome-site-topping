@@ -1,3 +1,6 @@
+import { translations } from '../i18n/translations';
+import { getCurrentLocale } from '../contexts/LanguageContext';
+
 const EXT = 'site-topping-';
 const ROOT_ID = 'site-topping-root';
 
@@ -247,7 +250,7 @@ function updateInteractiveModeIndicator(show: boolean) {
       boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
       transition: 'all 0.2s ease'
     } as CSSStyleDeclaration);
-    indicator.textContent = '상호작용 모드 (Shift 해제 시 인스펙터 모드)';
+    indicator.textContent = translations[getCurrentLocale()].elementInspector.interactiveMode;
     document.body.appendChild(indicator);
   } else if (!show && indicator) {
     indicator.remove();

@@ -3,9 +3,11 @@ import styles from '../styles/ChatTab.module.css';
 import { Loader, X } from 'lucide-react';
 import CodeChangeBlock from './CodeChangeBlock';
 import { calculateDiffSummary, parseCodeBlocks, formatTime } from '../utils/chat';
+import { useTranslations } from '../hooks/useTranslations';
 
 export default function MessageComponent({ message }: { message: ChatMessage }) {
   const { state } = useAppContext();
+  const t = useTranslations();
   const { text } = parseCodeBlocks(message.content);
 
   const isMessageApplied = () => {
@@ -45,7 +47,7 @@ export default function MessageComponent({ message }: { message: ChatMessage }) 
             <div className={`${styles.messageBubble} ${styles[message.type]} ${styles.failedMessage}`}>
               <div className={styles.failedIndicator}>
                 <X size={14} className={styles.failedIcon} />
-                <span>응답 생성에 실패했습니다</span>
+                <span>{t.chatTab.messages.failed}</span>
               </div>
               {text && text.trim() && <div className={styles.errorContent}>{text}</div>}
             </div>
@@ -64,19 +66,19 @@ export default function MessageComponent({ message }: { message: ChatMessage }) 
             <div className={styles.messageImagesGrid}>
               {message.images.map((src, index) => (
                 <a
-                  key={`msg-img-${message.id}-${index}`}
-                  href={src}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={styles.messageImageItem}
-                  title="이미지 크게 보기"
-                >
-                  <img src={src} alt={`첨부 이미지 ${index + 1}`} className={styles.messageImage} />
-                </a>
-              ))}
-            </div>
-          </div>
-        )}
+              key={`msg-img-${message.id}-${index}`}
+              href={src}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.messageImageItem}
+                  title={t.chatTab.messages.openImage}
+            >
+                  <img src={src} alt={t.chatTab.attachments.alt(index + 1)} className={styles.messageImage} />
+            </a>
+          ))}
+        </div>
+      </div>
+    )}
 
         {text && text.trim() ? (
           <div className={`${styles.messageBubble} ${styles[message.type]}`}>{text}</div>
@@ -115,7 +117,7 @@ export default function MessageComponent({ message }: { message: ChatMessage }) 
       {message.type === 'assistant' && (message.ai_model || typeof message.cost_usd === 'number') && (
             <span style={{ marginLeft: 8, opacity: 0.8 }}>
               {message.ai_model ? ` · ${message.ai_model}` : ''}
-        {typeof message.cost_usd === 'number' ? ` · ${Number(message.cost_usd).toFixed(4)} 크레딧` : ''}
+        {typeof message.cost_usd === 'number' ? ` · ${Number(message.cost_usd).toFixed(4)} ${t.common.creditsUnit}` : ''}
             </span>
           )}
         </div>

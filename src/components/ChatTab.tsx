@@ -12,6 +12,7 @@ import useImageAttachments from '../hooks/useImageAttachments';
 import { useWalletBalance } from '../hooks/useWalletBalance';
 import useMembership from '../hooks/useMembership';
 import { supabase } from '../services/supabase';
+import { useTranslations } from '../hooks/useTranslations';
 
 export default function ChatTab() {
   const { state, actions, computed } = useAppContext();
@@ -25,6 +26,7 @@ export default function ChatTab() {
   const textareaRef = useRef<HTMLDivElement>(null);
   const lastPickRef = useRef<{ selector: string; ts: number }>({ selector: '', ts: 0 });
   const { isSubscribed, status: membershipStatus } = useMembership();
+  const t = useTranslations();
 
   // 커서를 contentEditable 끝으로 이동
   const setCaretToEnd = (el: HTMLElement) => {
@@ -148,9 +150,9 @@ export default function ChatTab() {
     if (!isSubscribed) {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        alert('AI 채팅은 로그인 후 이용 가능합니다. User 탭에서 로그인해주세요.');
+        alert(t.chatTab.alerts.loginRequired);
       } else {
-        alert('AI 채팅은 구독 후 이용 가능합니다. User 탭에서 구독을 진행해주세요.');
+        alert(t.chatTab.alerts.subscriptionRequired);
       }
       return;
     }
@@ -175,11 +177,11 @@ export default function ChatTab() {
         const response = await aiService.createThread();
         if (response.status === 'success') {
           const threadId = response.data.threadId || response.data.id;
-          if (!threadId) throw new Error('서버에서 스레드 ID를 반환하지 않았습니다');
+          if (!threadId) throw new Error('Server did not return a thread ID');
 
           const newThread = {
             id: threadId,
-            title: response.data.title || '새 대화',
+            title: response.data.title || t.chatTab.defaultThreadTitle,
             messages: [],
             createdAt: new Date(response.data.created_at || Date.now()),
             updatedAt: new Date(response.data.updated_at || Date.now()),
@@ -189,7 +191,7 @@ export default function ChatTab() {
           actions.setCurrentThread(newThread.id);
           currentThreadId = newThread.id;
         } else {
-          throw new Error('스레드 생성 실패');
+          throw new Error('Failed to create thread');
         }
       } catch (error) {
         console.error('새 스레드 생성 실패:', error);
@@ -269,12 +271,13 @@ export default function ChatTab() {
         content: (() => {
           const msg = error instanceof Error ? error.message : String(error)
           if (msg.includes('402') || msg.includes('크레딧') || msg.includes('충전')) {
-            return '크레딧이 부족합니다. User 탭에서 로그인 후 잔액을 확인하고 충전하세요.'
+            return t.chatTab.errors.insufficientCredits;
           }
           if (msg.includes('구독') || msg.includes('subscription') || msg.includes('403')) {
-            return '구독 후 이용 가능한 기능입니다. User 탭에서 구독 상태를 확인해주세요.'
+            return t.chatTab.errors.subscriptionRequired;
           }
-          return `죄송합니다. AI 응답을 생성하는 중 오류가 발생했습니다: ${msg}`
+          const fallback = msg || t.common.unknownError;
+          return t.chatTab.errors.generic(fallback);
         })(),
         timestamp: new Date(),
         status: 'failed',
@@ -312,9 +315,9 @@ export default function ChatTab() {
       <div className={styles.container}>
         <div className={styles.header}>
           <button className={styles.backButton} onClick={() => setShowThreads(false)}>
-            ← 뒤로
+            {t.chatTab.backButton}
           </button>
-          <h3 className={styles.title}>대화 목록</h3>
+          <h3 className={styles.title}>{t.chatTab.threadListTitle}</h3>
         </div>
         <ThreadManager onThreadSelect={handleThreadSelect} onNewThread={handleNewThread} />
       </div>
@@ -324,9 +327,9 @@ export default function ChatTab() {
   return (
     <div className={styles.container}>
   <div className={styles.header}>
-        <h3 className={styles.title}>AI 채팅</h3>
+        <h3 className={styles.title}>{t.chatTab.title}</h3>
         <div className={styles.headerActions}>
-          <button className={styles.threadButton} onClick={() => setShowThreads(true)} title="대화 목록">
+          <button className={styles.threadButton} onClick={() => setShowThreads(true)} title={t.chatTab.threadListButtonTitle}>
             <List size={16} />
           </button>
           <button
@@ -334,7 +337,7 @@ export default function ChatTab() {
             onClick={() => {
               actions.setCurrentThread(null);
             }}
-            title="새 채팅"
+            title={t.chatTab.newChatButtonTitle}
           >
             <CirclePlus size={16} />
           </button>
@@ -347,8 +350,8 @@ export default function ChatTab() {
             {computed.currentMessages.length === 0 ? (
               <div className={styles.emptyState}>
                 <div className={styles.emptyStateIcon}>💬</div>
-                <div className={styles.emptyStateText}>AI와 채팅을 시작하세요</div>
-                <div className={styles.emptyStateSubtext}>코드 생성, 수정, 설명 등 다양한 도움을 받을 수 있습니다</div>
+                <div className={styles.emptyStateText}>{t.chatTab.emptyState.title}</div>
+                <div className={styles.emptyStateSubtext}>{t.chatTab.emptyState.description}</div>
               </div>
             ) : (
               <>
@@ -374,15 +377,15 @@ export default function ChatTab() {
                 <div className={styles.noticeBox}>
                   <Lock size={14} />
                   <span>
-                    AI 채팅은 구독 기능입니다. {membershipStatus ? 'User 탭에서 구독을 진행해주세요.' : 'User 탭에서 로그인 후 구독을 진행해주세요.'}
+                    {membershipStatus ? t.chatTab.notices.withAccount : t.chatTab.notices.withoutAccount}
                   </span>
                 </div>
               )}
               {isDragOver && (
                 <div className={styles.dragOverlay}>
                   <div className={styles.dragOverlayContent}>
-                    <div className={styles.dragOverlayText}>이미지를 여기에 드롭하세요</div>
-                    <div className={styles.dragOverlaySubtext}>최대 3개까지 첨부 가능합니다</div>
+                    <div className={styles.dragOverlayText}>{t.chatTab.dragOverlay.title}</div>
+                    <div className={styles.dragOverlaySubtext}>{t.chatTab.dragOverlay.subtitle}</div>
                   </div>
                 </div>
               )}
@@ -392,7 +395,7 @@ export default function ChatTab() {
                   <div className={styles.imagesGrid}>
                     {attachedImages.map((imageData, index) => (
                       <div key={`image-${index}`} className={styles.imagePreviewItem}>
-                        <img src={imageData} alt={`첨부된 이미지 ${index + 1}`} className={styles.imagePreview} />
+                        <img src={imageData} alt={t.chatTab.attachments.alt(index + 1)} className={styles.imagePreview} />
                         <button
                           type="button"
                           onClick={() => {
@@ -425,7 +428,7 @@ export default function ChatTab() {
                     onInput={handleInput}
                     onKeyDown={handleKeyDown}
                     className={styles.textInputEditable}
-                    data-placeholder="AI에게 질문하거나 코드 작성을 요청해보세요..."
+                    data-placeholder={t.chatTab.placeholder}
                     aria-disabled={!isSubscribed}
                     style={{ pointerEvents: isSubscribed ? 'auto' : 'none', opacity: isSubscribed ? 1 : 0.5 }}
                   />
@@ -454,7 +457,7 @@ export default function ChatTab() {
                   </div>
                   {/* 모델 선택 드롭다운: 서버 목록 수신 전엔 렌더하지 않음 */}
                   {isSubscribed && Object.keys(availableModels).length > 0 && (
-                    <div className={styles.modelSelectContainer} title="AI 모델 선택">
+                    <div className={styles.modelSelectContainer} title={t.chatTab.modelSelectTitle}>
                       <select
                         className={styles.modelSelect}
                         value={aiModel}
@@ -475,7 +478,7 @@ export default function ChatTab() {
 
                 <div className={styles.controlsRight}>
                   {walletBalance !== null && (
-                    <div className={styles.walletBadge} title={`잔액: 크레딧 ${walletBalance.toFixed(3)}`}>
+                    <div className={styles.walletBadge} title={t.chatTab.walletTooltip(walletBalance.toFixed(3), t.common.creditsUnit)}>
                       <Coins size={16} />
                       <span>{walletBalance.toFixed(2)}</span>
                     </div>

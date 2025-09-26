@@ -8,6 +8,7 @@ import { Save, Loader2, Check, X } from 'lucide-react';
 import { EditorView } from '@codemirror/view';
 import { persistHistoryStep } from '../services/versioning';
 import membershipService from '../services/membershipService';
+import { useTranslations } from '../hooks/useTranslations';
 
 // CodeMirror 배경 투명 테마 (글래스 효과를 컨테이너에서 보이도록)
 const transparentTheme = EditorView.theme({
@@ -25,6 +26,7 @@ export default function CodeEditTab() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
   const lastPickRef = useRef<{ selector: string; ts: number }>({ selector: '', ts: 0 });
+  const t = useTranslations();
 
   // 요소 선택 결과를 활성 탭이 Code일 때 코드 에디터에 삽입
   useEffect(() => {
@@ -145,7 +147,7 @@ export default function CodeEditTab() {
           actions.pushCodeHistory({
             javascript: currLocal.javascript,
             css: currLocal.css,
-            description: '사용자 저장',
+            description: t.codeEditor.historyDescription,
             isSuccessful: true,
           });
         } else {
@@ -198,7 +200,7 @@ export default function CodeEditTab() {
                 className={`${styles.saveButton} ${isSaving ? styles.loading : ''}`}
                 onClick={handleSave} 
                 disabled={isSaving}
-                title={isSaving ? "저장 중..." : "저장 및 히스토리 추가"}
+                title={isSaving ? t.codeEditor.savingTooltip : t.codeEditor.saveTooltip}
               >
                 {isSaving ? (
                   <Loader2 size={14} className={styles.spinner} />
@@ -209,7 +211,7 @@ export default function CodeEditTab() {
                 ) : (
                   <Save size={14} />
                 )}
-                저장
+                {t.codeEditor.saveButton}
               </button>
             </div>
           </div>

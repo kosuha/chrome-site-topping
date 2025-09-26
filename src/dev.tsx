@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { AppProvider } from './contexts/AppContext';
 import { AuthProvider } from './contexts/AuthContext';
+import { LanguageProvider } from './contexts/LanguageContext';
 import SidePanelApp from './components/SidePanelApp';
 
 const DevPanel: React.FC = () => {
@@ -10,11 +11,13 @@ const DevPanel: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <AuthProvider>
+    <LanguageProvider>
       <AppProvider>
-        <DevPanel />
+        <AuthProvider>
+          <DevPanel />
+        </AuthProvider>
       </AppProvider>
-    </AuthProvider>
+    </LanguageProvider>
   );
 };
 
