@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useReducer } from 'react'
+import React, { createContext, useContext, useEffect, useReducer, useCallback, useRef } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { supabase } from '../services/supabase'
 
@@ -48,6 +48,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loading: true,
     error: null
   })
+  const previousUserRef = useRef<User | null>(null)
+
+  const syncSession = useCallback(async () => {
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession()
+
+      if (error) {
+        throw error
+      }
+
+      const nextUser = session?.user ?? null
+
+      dispatch({
+        type: 'SET_SESSION',
+        payload: { user: nextUser, session }
+      })
+
+      previousUserRef.current = nextUser
+
+      return session
+    } catch (error) {
+      console.error('[AuthContext] Session sync failed:', error)
+      dispatch({
+        type: 'SET_ERROR',
+        payload: error instanceof Error ? error.message : 'Session sync failed'
+      })
+      return null
+    }
+  }, [dispatch])
 
   // AppContext를 임포트하지 않고 전역 이벤트로 통신
   const clearUserData = () => {
@@ -56,22 +85,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      dispatch({
-        type: 'SET_SESSION',
-        payload: { user: session?.user ?? null, session }
-      })
-    })
+    syncSession()
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        
-        const previousUser = state.user
+        const previousUser = previousUserRef.current
         dispatch({
           type: 'SET_SESSION',
           payload: { user: session?.user ?? null, session }
         })
+        previousUserRef.current = session?.user ?? null
 
         // 사용자 변경 감지 - 더 확실한 감지 로직
         if (event === 'SIGNED_OUT' || (!session?.user && previousUser)) {
@@ -113,16 +137,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   await supabase.auth.setSession({ access_token, refresh_token })
                 } else {
                   // access_token이 없으면 강제로 세션 조회 시도
-                  await supabase.auth.getSession()
+                  await syncSession()
+                  return
                 }
               } else {
                 // 저장소에 없으면 강제로 세션 조회 시도
-                await supabase.auth.getSession()
+                await syncSession()
+                return
               }
             }
-            dispatch({ type: 'SET_ERROR', payload: null })
+            await syncSession()
           } catch (e) {
             console.error('AUTH_SUCCESS 후 세션 동기화 실패:', e)
+            dispatch({
+              type: 'SET_ERROR',
+              payload: e instanceof Error ? e.message : 'Session sync failed'
+            })
           }
         })()
       }
@@ -139,25 +169,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         chrome.runtime.onMessage.removeListener(handleRuntimeMessage)
       }
     }
-  }, [])
+  }, [syncSession])
 
   const signInWithProvider = async (provider: string) => {
     dispatch({ type: 'SET_LOADING', payload: true })
     try {
       // In dev preview mode, mock the auth flow
       if (typeof chrome === 'undefined' || !chrome.runtime) {
-        dispatch({ type: 'SET_ERROR', payload: 'Auth not available in preview mode' })
-        return
+        throw new Error('Auth not available in preview mode')
       }
-      
+
       const response = await chrome.runtime.sendMessage({
         type: 'INIT_OAUTH',
         provider
       })
       
-      if (response.error) {
+      if (response?.error) {
         throw new Error(response.error)
       }
+
+      await syncSession()
     } catch (error) {
       dispatch({ 
         type: 'SET_ERROR', 
@@ -179,6 +210,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (typeof chrome !== 'undefined' && chrome.storage) {
         await chrome.storage.local.clear()
       }
+
+      await syncSession()
     } catch (error) {
       dispatch({ 
         type: 'SET_ERROR', 

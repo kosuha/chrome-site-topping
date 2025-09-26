@@ -173,6 +173,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
                 });
             }
         });
+
+        chrome.runtime.sendMessage({
+            type: 'AUTH_SUCCESS',
+            user: data.user
+        });
     } catch (error) {
         console.error('OAuth callback error:', error);
     }
@@ -1279,6 +1284,11 @@ async function initOAuth(provider: string) {
                     user: sessionData.user
                 })
             }
+        })
+
+        chrome.runtime.sendMessage({
+            type: 'AUTH_SUCCESS',
+            user: sessionData.user
         })
 
         return { success: true }
