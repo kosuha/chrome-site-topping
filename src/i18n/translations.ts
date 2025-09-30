@@ -80,6 +80,8 @@ export const translations = {
         `Active ${active} | Inactive ${inactive} | Total ${total}`,
       fileListTitle: 'Files',
       fileCount: (count: number) => `${count} file${count === 1 ? '' : 's'}`,
+      hideFileList: 'Hide file list',
+      showFileList: 'Show file list',
     },
     chatTab: {
       title: 'AI Chat',
@@ -350,6 +352,8 @@ export const translations = {
         `사용 중 ${active} | 비활성 ${inactive} | 전체 ${total}`,
       fileListTitle: '파일',
       fileCount: (count: number) => `총 ${count}개`,
+      hideFileList: '파일 목록 숨기기',
+      showFileList: '파일 목록 열기',
     },
     chatTab: {
       title: 'AI 채팅',

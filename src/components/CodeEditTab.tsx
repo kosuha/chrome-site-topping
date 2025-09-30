@@ -3,7 +3,7 @@ import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { css } from '@codemirror/lang-css';
 import { EditorView } from '@codemirror/view';
-import { Save, Loader2, Check, X, Plus, Trash2, Circle, CheckCircle, MoreVertical } from 'lucide-react';
+import { Save, Loader2, Check, X, Plus, Trash2, Circle, CheckCircle, MoreVertical, ChevronLeft, ChevronRight } from 'lucide-react';
 import styles from '../styles/CodeEditTab.module.css';
 import { useAppContext } from '../contexts/AppContext';
 import { useTranslations } from '../hooks/useTranslations';
@@ -28,6 +28,7 @@ export default function CodeEditTab() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const [isFilePanelOpen, setIsFilePanelOpen] = useState(true);
   const lastPickRef = useRef<{ selector: string; ts: number }>({ selector: '', ts: 0 });
   const activeFileCount = useMemo(() => files.filter(file => file.isActive).length, [files]);
   const inactiveFileCount = files.length - activeFileCount;
@@ -206,103 +207,118 @@ export default function CodeEditTab() {
     ? (language === 'javascript' ? selectedFile.draftJavascript : selectedFile.draftCss)
     : '';
 
+  const toggleFilePanel = () => setIsFilePanelOpen(prev => !prev);
+
   return (
     <div className={styles.container}>
-      <aside className={styles.filePanel}>
-        <div className={styles.filePanelHeader}>
-          <div className={styles.listInfo}>
-            <div className={styles.listTitleRow}>
-              <span className={styles.listTitle}>{t.codeEditor.fileListTitle}</span>
-              <span className={styles.listMeta}>{t.codeEditor.fileCount(files.length)}</span>
-            </div>
-            <div className={styles.fileStats} aria-live="polite">
-              {fileStatsLabel}
-            </div>
-          </div>
-          <div className={styles.panelActions}>
-            <button
-              type="button"
-              className={styles.plainButton}
-              onClick={handleAddFile}
-              title={t.codeEditor.addFileButton}
-            >
-              <Plus size={14} />
-              <span>{t.codeEditor.addFileButton}</span>
-            </button>
-            <button
-              type="button"
-              className={styles.plainButton}
-              onClick={handleSaveAll}
-              disabled={!computed.hasUnsavedFiles || isSaving}
-            >
-              <Save size={14} />
-              {t.codeEditor.saveAllButton}
-            </button>
-          </div>
-        </div>
-        <ul className={styles.fileList}>
-          {files.map(file => {
-            const isSelected = file.id === selectedFile?.id;
-            const fileStateLabel = file.isActive ? t.codeEditor.fileStatus.active : t.codeEditor.fileStatus.inactive;
-            return (
-              <li key={file.id} className={`${styles.fileItem} ${isSelected ? styles.selectedFile : ''}`}>
+      <aside className={`${styles.filePanel} ${!isFilePanelOpen ? styles.filePanelCollapsed : ''}`}>
+        <button
+          type="button"
+          className={`${styles.collapseHandle}`}
+          onClick={toggleFilePanel}
+          title={isFilePanelOpen ? t.codeEditor.hideFileList : t.codeEditor.showFileList}
+          aria-pressed={isFilePanelOpen}
+        >
+          {isFilePanelOpen ? <ChevronLeft size={24} /> : <ChevronRight size={24} />}
+        </button>
+        {isFilePanelOpen && (
+          <>
+            <div className={styles.filePanelHeader}>
+              <div className={styles.listInfo}>
+                <div className={styles.listTitleRow}>
+                  <span className={styles.listTitle}>{t.codeEditor.fileListTitle}</span>
+                  <span className={styles.listMeta}>{t.codeEditor.fileCount(files.length)}</span>
+                </div>
+                <div className={styles.fileStats} aria-live="polite">
+                  {fileStatsLabel}
+                </div>
+              </div>
+              <div className={styles.panelActions}>
                 <button
                   type="button"
-                  className={styles.fileMainButton}
-                  onClick={() => actions.setSelectedFile(file.id)}
+                  className={styles.plainButton}
+                  onClick={handleAddFile}
+                  title={t.codeEditor.addFileButton}
                 >
-                  <span className={styles.fileStatusIcon}>
-                    {file.isActive ? <CheckCircle size={14} /> : <Circle size={14} />}
-                  </span>
-                  <span className={styles.fileInfo}>
-                    <span className={styles.fileNameRow}>
-                      <span className={styles.fileName}>{file.name}</span>
-                      {file.hasUnsavedChanges && (
-                        <span
-                          className={styles.unsavedDot}
-                          title={t.codeEditor.badges.unsaved}
-                          aria-hidden="true"
-                        />
-                      )}
-                    </span>
-                    <span
-                      className={`${styles.fileStateLabel} ${file.isActive ? styles.fileStateActive : styles.fileStateInactive}`}
-                    >
-                      {fileStateLabel}
-                    </span>
-                  </span>
+                  <Plus size={14} />
+                  <span>{t.codeEditor.addFileButton}</span>
                 </button>
-                <div className={styles.fileActions}>
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    onClick={() => handleToggleActive(file.id, file.isActive)}
-                    title={file.isActive ? t.codeEditor.deactivate : t.codeEditor.activate}
-                  >
-                    {file.isActive ? <Check size={12} /> : <Circle size={12} />}
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    onClick={() => handleRenameFile(file.id, file.name)}
-                    title={t.codeEditor.rename}
-                  >
-                    <MoreVertical size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    onClick={() => handleDeleteFile(file.id)}
-                    title={t.codeEditor.delete}
-                    disabled={files.length <= 1}
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                <button
+                  type="button"
+                  className={styles.plainButton}
+                  onClick={handleSaveAll}
+                  disabled={!computed.hasUnsavedFiles || isSaving}
+                >
+                  <Save size={14} />
+                  {t.codeEditor.saveAllButton}
+                </button>
+              </div>
+            </div>
+            <ul className={styles.fileList}>
+              {files.map(file => {
+                const isSelected = file.id === selectedFile?.id;
+                const fileStateLabel = file.isActive ? t.codeEditor.fileStatus.active : t.codeEditor.fileStatus.inactive;
+                return (
+                  <li key={file.id} className={`${styles.fileItem} ${isSelected ? styles.selectedFile : ''}`}>
+                    <button
+                      type="button"
+                      className={styles.fileMainButton}
+                      onClick={() => actions.setSelectedFile(file.id)}
+                    >
+                      <span className={styles.fileStatusIcon}>
+                        {file.isActive ? <CheckCircle size={14} /> : <Circle size={14} />}
+                      </span>
+                      <span className={styles.fileInfo}>
+                        <span className={styles.fileNameRow}>
+                          <span className={styles.fileName}>{file.name}</span>
+                          {file.hasUnsavedChanges && (
+                            <span
+                              className={styles.unsavedDot}
+                              title={t.codeEditor.badges.unsaved}
+                              aria-hidden="true"
+                            />
+                          )}
+                        </span>
+                        <span
+                          className={`${styles.fileStateLabel} ${file.isActive ? styles.fileStateActive : styles.fileStateInactive}`}
+                        >
+                          {fileStateLabel}
+                        </span>
+                      </span>
+                    </button>
+                    <div className={styles.fileActions}>
+                      <button
+                        type="button"
+                        className={styles.iconButton}
+                        onClick={() => handleToggleActive(file.id, file.isActive)}
+                        title={file.isActive ? t.codeEditor.deactivate : t.codeEditor.activate}
+                      >
+                        {file.isActive ? <Check size={12} /> : <Circle size={12} />}
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.iconButton}
+                        onClick={() => handleRenameFile(file.id, file.name)}
+                        title={t.codeEditor.rename}
+                      >
+                        <MoreVertical size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.iconButton}
+                        onClick={() => handleDeleteFile(file.id)}
+                        title={t.codeEditor.delete}
+                        disabled={files.length <= 1}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
       </aside>
       <div className={styles.mainColumn}>
         <div className={styles.mainHeader}>
