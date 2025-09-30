@@ -121,6 +121,12 @@ export const translations = {
         failed: 'Failed to generate response',
         openImage: 'Open image in new tab',
       },
+      fileSelector: {
+        searchPlaceholder: 'Search files…',
+        noResults: 'No matching files',
+        openButton: 'Choose files to share with AI',
+        removeHint: (name: string) => `Remove ${name} from context`,
+      },
     },
     threadManager: {
       newChat: 'New chat',
@@ -392,6 +398,12 @@ export const translations = {
       messages: {
         failed: '응답 생성에 실패했습니다',
         openImage: '이미지를 새 탭에서 보기',
+      },
+      fileSelector: {
+        searchPlaceholder: '파일 검색…',
+        noResults: '일치하는 파일이 없습니다',
+        openButton: 'AI에 전달할 파일을 선택',
+        removeHint: (name: string) => `${name} 파일을 컨텍스트에서 제외`,
       },
     },
     threadManager: {

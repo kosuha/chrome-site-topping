@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useAppContext, ChatMessage } from '../contexts/AppContext';
 import ThreadManager from './ThreadManager';
 import aiService from '../services/aiService';
 import domExtractor from '../services/domExtractor';
 import styles from '../styles/ChatTab.module.css';
-import { ArrowUp, Loader, Paperclip, X, List, CirclePlus, Coins, Lock } from 'lucide-react';
+import { ArrowUp, Loader, Paperclip, X, List, CirclePlus, Coins, Lock, FilePlus2 } from 'lucide-react';
 import { DEFAULT_AI_MODEL, LOCAL_STORAGE_KEYS, type AIModelKey } from '../config/aiModels';
 import MessageComponent from './MessageComponent';
 import useThreadSSE from '../hooks/useThreadSSE';
@@ -18,15 +18,205 @@ export default function ChatTab() {
   const { state, actions, computed } = useAppContext();
   const [showThreads, setShowThreads] = useState(false);
   const [inputValue, setInputValue] = useState('');
+  const [fileSearch, setFileSearch] = useState('');
+  const [selectedFileIds, setSelectedFileIds] = useState<string[]>(() =>
+    state.codeFiles.filter((file) => file.isActive).map((file) => file.id)
+  );
+  const [showFilePicker, setShowFilePicker] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
   // AI 모델 목록(서버 동적)과 선택 상태 - 서버 응답 전에는 비워둔다
   const [availableModels, setAvailableModels] = useState<Record<AIModelKey, { label: string }>>({});
   const [aiModel, setAiModel] = useState<AIModelKey>('');
   const walletBalance = useWalletBalance();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLDivElement>(null);
+  const filePickerRef = useRef<HTMLDivElement>(null);
+  const fileSearchInputRef = useRef<HTMLInputElement>(null);
+  const fileListRef = useRef<HTMLDivElement>(null);
   const lastPickRef = useRef<{ selector: string; ts: number }>({ selector: '', ts: 0 });
   const { isSubscribed, status: membershipStatus } = useMembership();
   const t = useTranslations();
+
+  useEffect(() => {
+    const availableIds = new Set(state.codeFiles.map((file) => file.id));
+    setSelectedFileIds((prev) => {
+      const filtered = prev.filter((id) => availableIds.has(id));
+      if (filtered.length > 0) {
+        return filtered;
+      }
+
+      const activeFallback = state.codeFiles
+        .filter((file) => file.isActive)
+        .map((file) => file.id);
+
+      if (activeFallback.length > 0) {
+        return activeFallback;
+      }
+
+      if (state.codeFiles.length > 0) {
+        return [state.codeFiles[0].id];
+      }
+
+      return filtered;
+    });
+  }, [state.codeFiles]);
+
+  const orderedCodeFiles = useMemo(
+    () => [...state.codeFiles].sort((a, b) => a.order - b.order),
+    [state.codeFiles]
+  );
+
+  const filteredCodeFiles = useMemo(() => {
+    const query = fileSearch.trim().toLowerCase();
+    if (!query) return orderedCodeFiles;
+    return orderedCodeFiles.filter((file) => file.name.toLowerCase().includes(query));
+  }, [orderedCodeFiles, fileSearch]);
+
+  useEffect(() => {
+    if (!showFilePicker) return;
+    if (filteredCodeFiles.length === 0) {
+      setHighlightedIndex(-1);
+      return;
+    }
+    setHighlightedIndex((prev) => {
+      if (prev < 0 || prev >= filteredCodeFiles.length) {
+        return 0;
+      }
+      return prev;
+    });
+  }, [filteredCodeFiles, showFilePicker]);
+
+  useEffect(() => {
+    if (!showFilePicker) return;
+    if (highlightedIndex < 0) return;
+    const listEl = fileListRef.current;
+    if (!listEl) return;
+    const item = listEl.children[highlightedIndex] as HTMLElement | undefined;
+    item?.scrollIntoView({ block: 'nearest' });
+  }, [highlightedIndex, showFilePicker]);
+
+  const selectedFiles = useMemo(
+    () => orderedCodeFiles.filter((file) => selectedFileIds.includes(file.id)),
+    [orderedCodeFiles, selectedFileIds]
+  );
+
+  const selectedCode = useMemo(() => {
+    if (selectedFiles.length === 0) {
+      return { javascript: '', css: '' };
+    }
+
+    const javascript = selectedFiles
+      .map((file) => {
+        const header = `// File: ${file.name}`;
+        const body = file.draftJavascript.trim();
+        return body ? `${header}\n${body}` : header;
+      })
+      .join('\n\n')
+      .trim();
+
+    const css = selectedFiles
+      .map((file) => {
+        const header = `/* File: ${file.name} */`;
+        const body = file.draftCss.trim();
+        return body ? `${header}\n${body}` : header;
+      })
+      .join('\n\n')
+      .trim();
+
+    return { javascript, css };
+  }, [selectedFiles]);
+
+  const handleToggleFile = (fileId: string) => {
+    setSelectedFileIds((prev) => {
+      if (prev.includes(fileId)) {
+        return prev.filter((id) => id !== fileId);
+      }
+      return [...prev, fileId];
+    });
+  };
+
+  const handlePickerKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showFilePicker) return;
+    if (filteredCodeFiles.length === 0) return;
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setHighlightedIndex((prev) => {
+        const next = prev < 0 ? 0 : (prev + 1) % filteredCodeFiles.length;
+        return next;
+      });
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setHighlightedIndex((prev) => {
+        if (prev <= 0) {
+          return filteredCodeFiles.length - 1;
+        }
+        return prev - 1;
+      });
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (highlightedIndex >= 0 && highlightedIndex < filteredCodeFiles.length) {
+        const targetFile = filteredCodeFiles[highlightedIndex];
+        handleToggleFile(targetFile.id);
+      }
+      return;
+    }
+  };
+
+  const openFilePicker = () => {
+    if (!isSubscribed) return;
+    setShowFilePicker(true);
+    setTimeout(() => {
+      fileSearchInputRef.current?.focus();
+    }, 0);
+    if (filteredCodeFiles.length > 0) {
+      setHighlightedIndex(0);
+    } else {
+      setHighlightedIndex(-1);
+    }
+  };
+
+  const closeFilePicker = useCallback(() => {
+    setShowFilePicker(false);
+    setFileSearch('');
+    setHighlightedIndex(-1);
+  }, []);
+
+  useEffect(() => {
+    if (!showFilePicker) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!filePickerRef.current) return;
+      if (
+        !filePickerRef.current.contains(target) &&
+        target instanceof HTMLElement &&
+        !target.closest(`.${styles.contextButton}`)
+      ) {
+        closeFilePicker();
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeFilePicker();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showFilePicker, closeFilePicker]);
 
   // 커서를 contentEditable 끝으로 이동
   const setCaretToEnd = (el: HTMLElement) => {
@@ -236,8 +426,8 @@ export default function ChatTab() {
 
   try {
       const pageContext = domExtractor.createFullContext(
-        computed.activeJavascript,
-        computed.activeCss
+        selectedCode.javascript,
+        selectedCode.css
       );
 
       const siteCode = state.selectedSiteCode;
@@ -248,14 +438,15 @@ export default function ChatTab() {
         {
           pageContext: pageContext,
           userCode: {
-            javascript: computed.activeJavascript,
-            css: computed.activeCss,
+            javascript: selectedCode.javascript,
+            css: selectedCode.css,
           },
           pageUrl: window.location.href,
           domInfo: domExtractor.extractPageDOM(),
           images: attachedImages.length > 0 ? attachedImages : undefined,
           // 사용자가 선택한 AI 모델을 서버로 전달
           ai_model_preferred: aiModel || undefined,
+          selectedFileIds,
         },
         siteCode || undefined,
         false,
@@ -291,6 +482,9 @@ export default function ChatTab() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // if (e.key === '@') {
+    //   openFilePicker();
+    // }
     if (e.key === 'Enter' && !e.shiftKey && !(e.nativeEvent as any).isComposing) {
       e.preventDefault();
       handleSendMessage();
@@ -421,6 +615,22 @@ export default function ChatTab() {
 
               <div className={styles.textInputContainer}>
                 <div className={styles.textInputWrapper}>
+                  {selectedFiles.length > 0 && (
+                    <div className={styles.selectedFilesChips}>
+                      {selectedFiles.map((file) => (
+                        <button
+                          key={file.id}
+                          type="button"
+                          className={styles.fileChip}
+                          onClick={() => handleToggleFile(file.id)}
+                          title={t.chatTab.fileSelector.removeHint(file.name)}
+                        >
+                          <span>{file.name}</span>
+                          <X size={12} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div
                     ref={textareaRef}
                     contentEditable
@@ -437,6 +647,22 @@ export default function ChatTab() {
 
               <div className={styles.bottomControls}>
                 <div className={styles.controlsLeft}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isSubscribed) return;
+                      if (showFilePicker) {
+                        closeFilePicker();
+                      } else {
+                        openFilePicker();
+                      }
+                    }}
+                    className={`${styles.attachButton}`}
+                    disabled={!isSubscribed}
+                    title={t.chatTab.fileSelector.openButton}
+                  >
+                    <FilePlus2 size={16} />
+                  </button>
                   <div className={styles.attachButtonContainer}>
                     <input
                       ref={fileInputRef}
@@ -495,6 +721,65 @@ export default function ChatTab() {
               </div>
             </div>
           </div>
+          {showFilePicker && (
+            <div className={styles.filePickerOverlay}>
+              <div className={styles.fileSelector} ref={filePickerRef}>
+                <input
+                  ref={fileSearchInputRef}
+                  type="text"
+                  className={styles.fileSearchInput}
+                  placeholder={t.chatTab.fileSelector.searchPlaceholder}
+                  value={fileSearch}
+                  onChange={(event) => setFileSearch(event.target.value)}
+                  onKeyDown={handlePickerKeyDown}
+                />
+                <div
+                  className={styles.fileList}
+                  ref={fileListRef}
+                  role="listbox"
+                  aria-activedescendant={
+                    highlightedIndex >= 0 && highlightedIndex < filteredCodeFiles.length
+                      ? `file-option-${filteredCodeFiles[highlightedIndex].id}`
+                      : undefined
+                  }
+                >
+                  {filteredCodeFiles.length === 0 ? (
+                    <div className={styles.fileListEmpty}>{t.chatTab.fileSelector.noResults}</div>
+                  ) : (
+                    filteredCodeFiles.map((file, index) => {
+                      const checked = selectedFileIds.includes(file.id);
+                      const isHighlighted = highlightedIndex === index;
+                      return (
+                        <label
+                          id={`file-option-${file.id}`}
+                          key={file.id}
+                          className={`${styles.fileListItem} ${checked ? styles.fileListItemSelected : ''} ${
+                            isHighlighted ? styles.fileListItemActive : ''
+                          }`}
+                          onMouseEnter={() => setHighlightedIndex(index)}
+                          onClick={() => fileSearchInputRef.current?.focus()}
+                        >
+                          <input
+                            type="checkbox"
+                            className={styles.fileCheckbox}
+                            checked={checked}
+                            onChange={() => {
+                              handleToggleFile(file.id);
+                              fileSearchInputRef.current?.focus();
+                            }}
+                          />
+                          <div className={styles.fileInfo}>
+                            <span className={styles.fileName}>{file.name}</span>
+                            <span className={styles.fileMeta}>#{file.order}</span>
+                          </div>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
