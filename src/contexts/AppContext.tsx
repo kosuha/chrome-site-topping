@@ -1,8 +1,22 @@
 import React, { createContext, useContext, useReducer, ReactNode, useMemo, useEffect, useRef } from 'react';
 import { aiService } from '../services/aiService';
 import { supabase } from '../services/supabase';
-import { loadSiteHistoryHelper } from '../services/siteHistory';
-import membershipService from '../services/membershipService';
+import {
+  CodeFile,
+  createEmptyFile,
+  cloneFiles,
+  filesToLanguageString,
+  applyLanguageStringToFiles,
+  mergeLanguageSources,
+  mergeBundleIntoFiles,
+  computeActiveOutput,
+  hasUnsavedFiles,
+  ensureUniqueName,
+  markDraft,
+  saveFileDraft,
+  normaliseOrder,
+} from '../utils/codeFiles';
+import { SiteIntegrationService } from '../services/siteIntegration';
 
 export interface ChatMessage {
   id: string;
@@ -48,18 +62,24 @@ export interface AppState {
   isLoading: boolean;
   error: string | null;
   isPreviewMode: boolean;
-  isRestoring: boolean; // 코드 복원 중 플래그
-  isCreatingSnapshot: boolean; // 스냅샷 생성 중 플래그
-  hasSnapshot: boolean; // 스냅샷 존재 여부
-  selectedSiteCode: string | null; // 사용자가 선택한 사이트 코드
+  isRestoring: boolean;
+  isCreatingSnapshot: boolean;
+  hasSnapshot: boolean;
+  selectedSiteCode: string | null;
+  codeFiles: CodeFile[];
+  selectedFileId: string | null;
+  serverCode: {
+    draftScript: string | null;
+    draftCss: string | null;
+    deployedScript: string | null;
+    deployedCss: string | null;
+  };
   editorCode: {
     javascript: string;
     css: string;
   };
-  // 코드 변경 히스토리 스택 (브라우저 뒤로가기 스타일)
   codeHistoryStack: Array<{
-    javascript: string;
-    css: string;
+    files: CodeFile[];
     messageId?: string;
     timestamp: Date;
     description?: string;
@@ -79,7 +99,7 @@ export interface AppState {
   isAiLoading: boolean;
 }
 
-type AppAction = 
+type AppAction =
   | { type: 'SET_ACTIVE_TAB'; payload: 'code' | 'chat' | 'user' }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string | null }
@@ -89,11 +109,21 @@ type AppAction =
   | { type: 'SET_CREATING_SNAPSHOT'; payload: boolean }
   | { type: 'SET_HAS_SNAPSHOT'; payload: boolean }
   | { type: 'SET_SELECTED_SITE_CODE'; payload: string | null }
+  | { type: 'SET_SELECTED_FILE'; payload: string | null }
+  | { type: 'SET_CODE_FILES'; payload: CodeFile[] }
+  | { type: 'UPDATE_FILE_DRAFT'; payload: { fileId: string; language: 'javascript' | 'css'; code: string } }
+  | { type: 'SAVE_FILE'; payload: { fileId: string; description?: string } }
+  | { type: 'SAVE_ALL_FILES'; payload?: { description?: string } }
+  | { type: 'CREATE_FILE'; payload?: { name?: string } }
+  | { type: 'DELETE_FILE'; payload: { fileId: string } }
+  | { type: 'RENAME_FILE'; payload: { fileId: string; name: string } }
+  | { type: 'SET_FILE_ACTIVE'; payload: { fileId: string; isActive: boolean } }
   | { type: 'SET_EDITOR_CODE'; payload: { language: 'javascript' | 'css'; code: string } }
-  | { type: 'PUSH_CODE_HISTORY'; payload: { 
-      javascript: string; 
-      css: string; 
-      messageId?: string; 
+  | { type: 'SET_SERVER_CODE'; payload: { draftScript: string | null; draftCss: string | null; deployedScript: string | null; deployedCss: string | null } }
+  | { type: 'APPLY_BUNDLE'; payload: { bundle: string } }
+  | { type: 'PUSH_CODE_HISTORY'; payload: {
+      files: CodeFile[];
+      messageId?: string;
       description?: string;
       changeSummary?: {
         javascript?: { added: number; removed: number };
@@ -119,33 +149,56 @@ type AppAction =
   | { type: 'ADD_SERVER_THREAD'; payload: ChatThread }
   | { type: 'LOAD_THREAD_MESSAGES'; payload: { threadId: string; messages: ChatMessage[] } };
 
-const getInitialState = (): AppState => ({
-  activeTab: 'chat',
-  isLoading: false,
-  error: null,
-  isPreviewMode: false,
-  isRestoring: false,
-  isCreatingSnapshot: false,
+const getInitialState = (): AppState => {
+  const initialFile = createEmptyFile(1, 'main');
+  const files = normaliseOrder([{ ...initialFile }]);
+  const editorCode = buildEditorCode(files);
+
+  return {
+    activeTab: 'chat',
+    isLoading: false,
+    error: null,
+    isPreviewMode: false,
+    isRestoring: false,
+    isCreatingSnapshot: false,
   hasSnapshot: false,
   selectedSiteCode: null,
-  editorCode: {
-    javascript: '',
-    css: ''
+  codeFiles: files,
+  selectedFileId: resolveSelectedFileId(files, null),
+  serverCode: {
+    draftScript: null,
+    draftCss: null,
+    deployedScript: null,
+    deployedCss: null,
   },
-  codeHistoryStack: [{
-    javascript: '',
-    css: '',
-    timestamp: new Date(),
-    description: '초기 상태'
-  }],
-  currentHistoryIndex: 0,
-  lastAppliedChange: null,
-  chatThreads: [],
-  currentThreadId: null,
-  isAiLoading: false,
+  editorCode,
+    codeHistoryStack: [{
+      files: cloneFiles(files),
+      timestamp: new Date(),
+      description: 'Initial state',
+    }],
+    currentHistoryIndex: 0,
+    lastAppliedChange: null,
+    chatThreads: [],
+    currentThreadId: null,
+    isAiLoading: false,
+  };
+};
+
+
+const resolveSelectedFileId = (files: CodeFile[], preferredId: string | null): string | null => {
+  if (!files.length) return null;
+  if (preferredId && files.some(file => file.id === preferredId)) return preferredId;
+  return files[0].id;
+};
+
+const buildEditorCode = (files: CodeFile[]) => ({
+  javascript: filesToLanguageString(files, 'javascript', true, true),
+  css: filesToLanguageString(files, 'css', true, true),
 });
 
 const initialState = getInitialState();
+
 
 function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
@@ -170,70 +223,213 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, hasSnapshot: action.payload };
     case 'SET_SELECTED_SITE_CODE':
       return { ...state, selectedSiteCode: action.payload };
-    case 'SET_EDITOR_CODE':
+    case 'SET_SELECTED_FILE':
+      return { ...state, selectedFileId: action.payload };
+    case 'SET_CODE_FILES': {
+      const normalised = normaliseOrder(action.payload.map(file => ({ ...file })));
       return {
         ...state,
-        editorCode: {
-          ...state.editorCode,
-          [action.payload.language]: action.payload.code
-        }
+        codeFiles: normalised,
+        editorCode: buildEditorCode(normalised),
+        selectedFileId: resolveSelectedFileId(normalised, state.selectedFileId),
       };
-    case 'PUSH_CODE_HISTORY':
+    }
+    case 'SET_SERVER_CODE':
+      return {
+        ...state,
+        serverCode: {
+          draftScript: action.payload.draftScript,
+          draftCss: action.payload.draftCss,
+          deployedScript: action.payload.deployedScript,
+          deployedCss: action.payload.deployedCss,
+        },
+      };
+    case 'UPDATE_FILE_DRAFT': {
+      const files = state.codeFiles.map(file =>
+        file.id === action.payload.fileId
+          ? markDraft(file, action.payload.language, action.payload.code)
+          : file
+      );
+      return { ...state, codeFiles: files };
+    }
+    case 'SAVE_FILE': {
+      const original = state.codeFiles.find(file => file.id === action.payload.fileId);
+      if (!original || !original.hasUnsavedChanges) {
+        return state;
+      }
+      const files = state.codeFiles.map(file =>
+        file.id === action.payload.fileId ? saveFileDraft(file) : file
+      );
+      const normalised = normaliseOrder(files);
+      const savedFile = normalised.find(file => file.id === action.payload.fileId);
+      const description = action.payload.description || (savedFile ? `Saved ${savedFile.name}` : 'Saved file');
       const newHistoryItem = {
-        javascript: action.payload.javascript,
-        css: action.payload.css,
+        files: cloneFiles(normalised),
+        timestamp: new Date(),
+        description,
+        isSuccessful: true,
+      };
+      const newStack = state.codeHistoryStack.slice(0, state.currentHistoryIndex + 1);
+      newStack.push(newHistoryItem);
+      return {
+        ...state,
+        codeFiles: normalised,
+        editorCode: buildEditorCode(normalised),
+        codeHistoryStack: newStack,
+        currentHistoryIndex: newStack.length - 1,
+        lastAppliedChange: null,
+        selectedFileId: resolveSelectedFileId(normalised, action.payload.fileId),
+      };
+    }
+    case 'SAVE_ALL_FILES': {
+      const hasDirty = state.codeFiles.some(file => file.hasUnsavedChanges);
+      if (!hasDirty) return state;
+      const files = state.codeFiles.map(saveFileDraft);
+      const normalised = normaliseOrder(files);
+      const newHistoryItem = {
+        files: cloneFiles(normalised),
+        timestamp: new Date(),
+        description: action.payload?.description || 'Saved all files',
+        isSuccessful: true,
+      };
+      const newStack = state.codeHistoryStack.slice(0, state.currentHistoryIndex + 1);
+      newStack.push(newHistoryItem);
+      return {
+        ...state,
+        codeFiles: normalised,
+        editorCode: buildEditorCode(normalised),
+        codeHistoryStack: newStack,
+        currentHistoryIndex: newStack.length - 1,
+        lastAppliedChange: null,
+        selectedFileId: resolveSelectedFileId(normalised, state.selectedFileId),
+      };
+    }
+    case 'CREATE_FILE': {
+      const desired = (action.payload?.name || '').trim() || 'feature';
+      const uniqueName = ensureUniqueName(state.codeFiles, desired);
+      const baseFile = createEmptyFile(state.codeFiles.length + 1, uniqueName);
+      const newFile = { ...baseFile, name: uniqueName };
+      const files = normaliseOrder([...state.codeFiles, newFile]);
+      return {
+        ...state,
+        codeFiles: files,
+        editorCode: buildEditorCode(files),
+        selectedFileId: newFile.id,
+      };
+    }
+    case 'DELETE_FILE': {
+      const remaining = state.codeFiles.filter(file => file.id !== action.payload.fileId);
+      const nextFiles = remaining.length > 0 ? remaining : [createEmptyFile(1, 'main')];
+      const normalised = normaliseOrder(nextFiles);
+      const nextSelected = resolveSelectedFileId(normalised, state.selectedFileId === action.payload.fileId ? null : state.selectedFileId);
+      return {
+        ...state,
+        codeFiles: normalised,
+        editorCode: buildEditorCode(normalised),
+        selectedFileId: nextSelected,
+      };
+    }
+    case 'RENAME_FILE': {
+      const desired = action.payload.name.trim();
+      if (!desired) return state;
+      const others = state.codeFiles.filter(file => file.id !== action.payload.fileId);
+      const uniqueName = ensureUniqueName(others, desired);
+      const files = state.codeFiles.map(file =>
+        file.id === action.payload.fileId ? { ...file, name: uniqueName } : file
+      );
+      const normalised = normaliseOrder(files);
+      return {
+        ...state,
+        codeFiles: normalised,
+        editorCode: buildEditorCode(normalised),
+      };
+    }
+    case 'SET_FILE_ACTIVE': {
+      const files = state.codeFiles.map(file =>
+        file.id === action.payload.fileId ? { ...file, isActive: action.payload.isActive } : file
+      );
+      const normalised = normaliseOrder(files);
+      return {
+        ...state,
+        codeFiles: normalised,
+        editorCode: buildEditorCode(normalised),
+      };
+    }
+    case 'SET_EDITOR_CODE': {
+      const updated = applyLanguageStringToFiles(state.codeFiles, action.payload.code, action.payload.language);
+      const normalised = normaliseOrder(updated);
+      return {
+        ...state,
+        codeFiles: normalised,
+        editorCode: buildEditorCode(normalised),
+      };
+    }
+    case 'APPLY_BUNDLE': {
+      const merged = mergeBundleIntoFiles(state.codeFiles, action.payload.bundle);
+      const normalised = normaliseOrder(merged);
+      return {
+        ...state,
+        codeFiles: normalised,
+        editorCode: buildEditorCode(normalised),
+        selectedFileId: resolveSelectedFileId(normalised, state.selectedFileId),
+      };
+    }
+    case 'PUSH_CODE_HISTORY': {
+      const snapshot = cloneFiles(normaliseOrder(action.payload.files));
+      const newHistoryItem = {
+        files: snapshot,
         messageId: action.payload.messageId,
         timestamp: new Date(),
         description: action.payload.description || 'AI 코드 적용',
         changeSummary: action.payload.changeSummary,
-        isSuccessful: action.payload.isSuccessful ?? true
+        isSuccessful: action.payload.isSuccessful ?? true,
       };
-      
-      // 현재 인덱스 이후의 히스토리 제거 (브라우저 뒤로가기 스타일)
       const newStack = state.codeHistoryStack.slice(0, state.currentHistoryIndex + 1);
       newStack.push(newHistoryItem);
-      
       return {
         ...state,
         codeHistoryStack: newStack,
-        currentHistoryIndex: newStack.length - 1
+        currentHistoryIndex: newStack.length - 1,
       };
-    case 'GO_BACK_HISTORY':
+    }
+    case 'GO_BACK_HISTORY': {
       if (state.currentHistoryIndex > 0) {
         const newIndex = state.currentHistoryIndex - 1;
         const targetHistory = state.codeHistoryStack[newIndex];
+        const files = cloneFiles(targetHistory.files);
+        const normalised = normaliseOrder(files);
         return {
           ...state,
-          editorCode: {
-            javascript: targetHistory.javascript,
-            css: targetHistory.css
-          },
+          codeFiles: normalised,
+          editorCode: buildEditorCode(normalised),
           currentHistoryIndex: newIndex,
-          lastAppliedChange: targetHistory.messageId ? {
-            messageId: targetHistory.messageId,
-            timestamp: targetHistory.timestamp
-          } : null
+          lastAppliedChange: targetHistory.messageId
+            ? { messageId: targetHistory.messageId, timestamp: targetHistory.timestamp }
+            : null,
+          selectedFileId: resolveSelectedFileId(normalised, state.selectedFileId),
         };
       }
       return state;
-    case 'GO_FORWARD_HISTORY':
+    }
+    case 'GO_FORWARD_HISTORY': {
       if (state.currentHistoryIndex < state.codeHistoryStack.length - 1) {
         const newIndex = state.currentHistoryIndex + 1;
         const targetHistory = state.codeHistoryStack[newIndex];
+        const files = cloneFiles(targetHistory.files);
+        const normalised = normaliseOrder(files);
         return {
           ...state,
-          editorCode: {
-            javascript: targetHistory.javascript,
-            css: targetHistory.css
-          },
+          codeFiles: normalised,
+          editorCode: buildEditorCode(normalised),
           currentHistoryIndex: newIndex,
-          lastAppliedChange: targetHistory.messageId ? {
-            messageId: targetHistory.messageId,
-            timestamp: targetHistory.timestamp
-          } : null
+          lastAppliedChange: targetHistory.messageId
+            ? { messageId: targetHistory.messageId, timestamp: targetHistory.timestamp }
+            : null,
+          selectedFileId: resolveSelectedFileId(normalised, state.selectedFileId),
         };
       }
       return state;
+    }
     case 'SET_LAST_APPLIED_CHANGE':
       return {
         ...state,
@@ -243,10 +439,9 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         codeHistoryStack: [{
-          javascript: state.editorCode.javascript,
-          css: state.editorCode.css,
+          files: cloneFiles(state.codeFiles),
           timestamp: new Date(),
-          description: '히스토리 초기화'
+          description: '히스토리 초기화',
         }],
         currentHistoryIndex: 0,
         lastAppliedChange: null
@@ -397,12 +592,20 @@ interface AppContextType {
     setCreatingSnapshot: (creating: boolean) => void;
     setHasSnapshot: (hasSnapshot: boolean) => void;
     setSelectedSiteCode: (siteCode: string | null) => void;
+    setSelectedFile: (fileId: string | null) => void;
+    updateFileDraft: (fileId: string, language: 'javascript' | 'css', code: string) => void;
+    saveFile: (fileId: string, description?: string) => void;
+    saveAllFiles: (description?: string) => void;
+    createFile: (name?: string) => void;
+    deleteFile: (fileId: string) => void;
+    renameFile: (fileId: string, name: string) => void;
+    setFileActive: (fileId: string, isActive: boolean) => void;
     setEditorCode: (language: 'javascript' | 'css', code: string) => void;
+    setServerCode: (draftScript: string | null, draftCss: string | null, deployedScript: string | null, deployedCss: string | null) => void;
     // 코드 변경 히스토리 관련 액션들 (브라우저 스타일)
-    pushCodeHistory: (history: { 
-      javascript: string; 
-      css: string; 
-      messageId?: string; 
+    pushCodeHistory: (history: {
+      files: CodeFile[];
+      messageId?: string;
       description?: string;
       changeSummary?: {
         javascript?: { added: number; removed: number };
@@ -431,60 +634,72 @@ interface AppContextType {
   computed: {
     currentThread: ChatThread | null;
     currentMessages: ChatMessage[];
+    selectedFile: CodeFile | null;
+    hasUnsavedFiles: boolean;
+    hasPendingDeployment: boolean;
+    activeJavascript: string;
+    activeCss: string;
+    draftScript: string;
+    draftCss: string;
+    deployedScript: string;
+    deployedCss: string;
   };
 }
 
-// 선택된 사이트의 히스토리를 로드하는 함수 (헬퍼 사용)
-const loadSiteHistory = async (siteCode: string, dispatch: React.Dispatch<AppAction>, currentState: AppState) => {
+// 선택된 사이트의 코드를 서버에서 로드
+const loadSiteHistory = async (siteCode: string, dispatch: React.Dispatch<AppAction>, _currentState: AppState) => {
   try {
-    // 멤버십 확인: 구독자가 아니면 서버 히스토리 로드를 건너뜁니다
-    const status = await membershipService.getStatus();
-    const isSubscribed = !!status && status.level > 0 && !status.is_expired;
-    if (!isSubscribed) {
-      return;
-    }
-
-    const { steps: reconstructedSteps, latest: latestStep } = await loadSiteHistoryHelper(siteCode);
-
-    const currentJavaScript = currentState.editorCode.javascript.trim();
-    const currentCss = currentState.editorCode.css.trim();
-
-    if (reconstructedSteps.length === 0) {
-      dispatch({ type: 'CLEAR_CODE_HISTORY' });
-      dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'javascript', code: '' } });
-      dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'css', code: '' } });
-      return;
-    }
-
-    if (!latestStep) return;
-    const normalizedLatestJS = (latestStep.javascript || '').trim();
-    const normalizedLatestCSS = (latestStep.css || '').trim();
-
-    if (normalizedLatestJS === currentJavaScript && normalizedLatestCSS === currentCss) {
-      return;
-    }
-
+    const siteService = SiteIntegrationService.getInstance();
     dispatch({ type: 'SET_RESTORING', payload: true });
-    dispatch({ type: 'CLEAR_CODE_HISTORY' });
 
-    reconstructedSteps.forEach((step, index) => {
-      dispatch({
-        type: 'PUSH_CODE_HISTORY',
-        payload: {
-          javascript: step.javascript,
-          css: step.css,
-          description: `${siteCode} 복원 ${index + 1}`,
-          isSuccessful: true,
+    const response = await siteService.getSiteScripts(siteCode);
+    const deployedScript = (response?.script_content ?? '').toString();
+    const deployedCss = (response?.css_content ?? '').toString();
+    const draftScript = (response?.draft_script_content ?? deployedScript ?? '').toString();
+    const draftCss = (response?.draft_css_content ?? deployedCss ?? '').toString();
+
+    let files = mergeLanguageSources(draftScript, draftCss).map(file => ({
+      ...file,
+      savedJavascript: file.savedJavascript ?? '',
+      draftJavascript: file.draftJavascript ?? file.savedJavascript ?? '',
+      savedCss: file.savedCss ?? '',
+      draftCss: file.draftCss ?? file.savedCss ?? '',
+      hasUnsavedChanges: false,
+    }));
+
+    if (files.length === 0) {
+      const base = createEmptyFile(1, 'main');
+      files = normaliseOrder([
+        {
+          ...base,
+          name: 'main',
+          savedJavascript: draftScript,
+          draftJavascript: draftScript,
+          savedCss: draftCss,
+          draftCss: draftCss,
+          hasUnsavedChanges: false,
         },
-      });
-    });
+      ]);
+    } else {
+      files = normaliseOrder(files);
+    }
 
-    dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'javascript', code: latestStep.javascript || '' } });
-    dispatch({ type: 'SET_EDITOR_CODE', payload: { language: 'css', code: latestStep.css || '' } });
-    dispatch({ type: 'SET_RESTORING', payload: false });
+    dispatch({ type: 'SET_CODE_FILES', payload: files });
+    dispatch({
+      type: 'SET_SERVER_CODE',
+      payload: {
+        draftScript,
+        draftCss,
+        deployedScript,
+        deployedCss,
+      },
+    });
+    dispatch({ type: 'CLEAR_CODE_HISTORY' });
   } catch (error) {
-    console.error('💥 [loadSiteHistory] 히스토리 로드 실패:', error);
+    console.error('💥 [loadSiteHistory] 코드 로드 실패:', error);
     throw error;
+  } finally {
+    dispatch({ type: 'SET_RESTORING', payload: false });
   }
 };
 
@@ -703,12 +918,25 @@ export function AppProvider({ children }: AppProviderProps) {
     setCreatingSnapshot: (creating: boolean) => dispatch({ type: 'SET_CREATING_SNAPSHOT', payload: creating }),
     setHasSnapshot: (hasSnapshot: boolean) => dispatch({ type: 'SET_HAS_SNAPSHOT', payload: hasSnapshot }),
     setSelectedSiteCode: (siteCode: string | null) => dispatch({ type: 'SET_SELECTED_SITE_CODE', payload: siteCode }),
-    setEditorCode: (language: 'javascript' | 'css', code: string) => dispatch({ type: 'SET_EDITOR_CODE', payload: { language, code } }),
-    // 코드 변경 히스토리 관련 액션들 (브라우저 스타일)
-    pushCodeHistory: (history: { 
-      javascript: string; 
-      css: string; 
-      messageId?: string; 
+    setSelectedFile: (fileId: string | null) => dispatch({ type: 'SET_SELECTED_FILE', payload: fileId }),
+    updateFileDraft: (fileId: string, language: 'javascript' | 'css', code: string) =>
+      dispatch({ type: 'UPDATE_FILE_DRAFT', payload: { fileId, language, code } }),
+    saveFile: (fileId: string, description?: string) =>
+      dispatch({ type: 'SAVE_FILE', payload: { fileId, description } }),
+    saveAllFiles: (description?: string) =>
+      dispatch({ type: 'SAVE_ALL_FILES', payload: { description } }),
+    createFile: (name?: string) => dispatch({ type: 'CREATE_FILE', payload: { name } }),
+    deleteFile: (fileId: string) => dispatch({ type: 'DELETE_FILE', payload: { fileId } }),
+    renameFile: (fileId: string, name: string) => dispatch({ type: 'RENAME_FILE', payload: { fileId, name } }),
+    setFileActive: (fileId: string, isActive: boolean) =>
+      dispatch({ type: 'SET_FILE_ACTIVE', payload: { fileId, isActive } }),
+    setEditorCode: (language: 'javascript' | 'css', code: string) =>
+      dispatch({ type: 'SET_EDITOR_CODE', payload: { language, code } }),
+    setServerCode: (draftScript: string | null, draftCss: string | null, deployedScript: string | null, deployedCss: string | null) =>
+      dispatch({ type: 'SET_SERVER_CODE', payload: { draftScript, draftCss, deployedScript, deployedCss } }),
+    pushCodeHistory: (history: {
+      files: CodeFile[];
+      messageId?: string;
       description?: string;
       changeSummary?: {
         javascript?: { added: number; removed: number };
@@ -718,33 +946,56 @@ export function AppProvider({ children }: AppProviderProps) {
     }) => dispatch({ type: 'PUSH_CODE_HISTORY', payload: history }),
     goBackHistory: () => dispatch({ type: 'GO_BACK_HISTORY' }),
     goForwardHistory: () => dispatch({ type: 'GO_FORWARD_HISTORY' }),
-    setLastAppliedChange: (messageId: string, timestamp: Date) => dispatch({ type: 'SET_LAST_APPLIED_CHANGE', payload: { messageId, timestamp } }),
+    setLastAppliedChange: (messageId: string, timestamp: Date) =>
+      dispatch({ type: 'SET_LAST_APPLIED_CHANGE', payload: { messageId, timestamp } }),
     clearCodeHistory: () => dispatch({ type: 'CLEAR_CODE_HISTORY' }),
     createNewThread: (title?: string) => dispatch({ type: 'CREATE_NEW_THREAD', payload: title }),
     setCurrentThread: (threadId: string | null) => dispatch({ type: 'SET_CURRENT_THREAD', payload: threadId }),
-    addMessageToThread: (threadId: string, message: ChatMessage) => dispatch({ type: 'ADD_MESSAGE_TO_THREAD', payload: { threadId, message } }),
-    updateMessageInThread: (threadId: string, messageId: string, message: ChatMessage) => dispatch({ type: 'UPDATE_MESSAGE_IN_THREAD', payload: { threadId, messageId, message } }),
+    addMessageToThread: (threadId: string, message: ChatMessage) =>
+      dispatch({ type: 'ADD_MESSAGE_TO_THREAD', payload: { threadId, message } }),
+    updateMessageInThread: (threadId: string, messageId: string, message: ChatMessage) =>
+      dispatch({ type: 'UPDATE_MESSAGE_IN_THREAD', payload: { threadId, messageId, message } }),
     deleteThread: (threadId: string) => dispatch({ type: 'DELETE_THREAD', payload: threadId }),
     updateThreadTitle: (threadId: string, title: string) => dispatch({ type: 'UPDATE_THREAD_TITLE', payload: { threadId, title } }),
     setAiLoading: (loading: boolean) => dispatch({ type: 'SET_AI_LOADING', payload: loading }),
     resetState: () => dispatch({ type: 'RESET_STATE' }),
-    // 서버 연동용 액션들
     loadThreadsFromServer: (threads: ChatThread[]) => dispatch({ type: 'LOAD_THREADS_FROM_SERVER', payload: threads }),
     addServerThread: (thread: ChatThread) => dispatch({ type: 'ADD_SERVER_THREAD', payload: thread }),
-    loadThreadMessages: (threadId: string, messages: ChatMessage[]) => dispatch({ type: 'LOAD_THREAD_MESSAGES', payload: { threadId, messages } }),
+    loadThreadMessages: (threadId: string, messages: ChatMessage[]) =>
+      dispatch({ type: 'LOAD_THREAD_MESSAGES', payload: { threadId, messages } }),
     loadSiteHistory: async (siteCode: string) => {
-      // 선택된 사이트 설정만 하고, useEffect에서 자동으로 히스토리 로드
       dispatch({ type: 'SET_SELECTED_SITE_CODE', payload: siteCode });
     },
   }), [dispatch, state]);
-
   const computed = useMemo(() => {
-    const currentThread = state.currentThreadId ? state.chatThreads.find(thread => thread.id === state.currentThreadId) || null : null;
+    const currentThread = state.currentThreadId
+      ? state.chatThreads.find(thread => thread.id === state.currentThreadId) || null
+      : null;
+    const selectedFile = state.selectedFileId
+      ? state.codeFiles.find(file => file.id === state.selectedFileId) || null
+      : null;
+    const draftActiveOutput = computeActiveOutput(state.codeFiles, true);
+    const draftScript = filesToLanguageString(state.codeFiles, 'javascript', true, true);
+    const draftCss = filesToLanguageString(state.codeFiles, 'css', true, true);
+    const deployedScript = state.serverCode.deployedScript || '';
+    const deployedCss = state.serverCode.deployedCss || '';
+    const normalize = (value: string | null | undefined) => (value || '').trim();
+    const hasPendingDeployment = normalize(draftScript) !== normalize(deployedScript)
+      || normalize(draftCss) !== normalize(deployedCss);
     return {
       currentThread,
       currentMessages: currentThread?.messages || [],
+      selectedFile,
+      hasUnsavedFiles: hasUnsavedFiles(state.codeFiles),
+      hasPendingDeployment,
+      activeJavascript: draftActiveOutput.javascript,
+      activeCss: draftActiveOutput.css,
+      draftScript,
+      draftCss,
+      deployedScript,
+      deployedCss,
     };
-  }, [state.currentThreadId, state.chatThreads]);
+  }, [state.currentThreadId, state.chatThreads, state.codeFiles, state.selectedFileId, state.serverCode]);
 
   const contextValue = useMemo(() => ({
     state,

@@ -14,6 +14,19 @@ export interface CreateSiteRequest {
   domain: string
 }
 
+export interface SiteScriptResponse {
+  script_content: string
+  css_content: string
+  draft_script_content: string
+  draft_css_content: string
+  draft_updated_at: string | null
+  version: number
+  last_updated: string | null
+  updated_at?: string | null
+  site_code?: string
+  message?: string
+}
+
 export class SiteIntegrationService {
   private static instance: SiteIntegrationService
   private baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
@@ -135,16 +148,26 @@ export class SiteIntegrationService {
     })
   }
 
-  async getSiteScripts(siteCode: string): Promise<{ css_content: string, js_content: string, version: number, last_updated: string }> {
-    return this.apiRequest<{ css_content: string, js_content: string, version: number, last_updated: string }>(`/sites/${siteCode}/scripts`)
+  async getSiteScripts(siteCode: string): Promise<SiteScriptResponse> {
+    return this.apiRequest<SiteScriptResponse>(`/sites/${siteCode}/scripts`)
   }
 
-  async deployScript(siteCode: string, cssContent: string, jsContent: string): Promise<any> {
-    return this.apiRequest<any>(`/sites/${siteCode}/scripts/deploy`, {
+  async deployScript(siteCode: string, payload: { draftScriptContent: string; draftCssContent: string }): Promise<SiteScriptResponse> {
+    return this.apiRequest<SiteScriptResponse>(`/sites/${siteCode}/scripts/deploy`, {
       method: 'POST',
-      body: JSON.stringify({ 
-        css_content: cssContent,
-        js_content: jsContent 
+      body: JSON.stringify({
+        draft_script_content: payload.draftScriptContent,
+        draft_css_content: payload.draftCssContent,
+      })
+    })
+  }
+
+  async saveDraftScript(siteCode: string, payload: { draftScriptContent: string; draftCssContent: string }): Promise<SiteScriptResponse> {
+    return this.apiRequest<SiteScriptResponse>(`/sites/${siteCode}/scripts/draft`, {
+      method: 'POST',
+      body: JSON.stringify({
+        draft_script_content: payload.draftScriptContent,
+        draft_css_content: payload.draftCssContent,
       })
     })
   }

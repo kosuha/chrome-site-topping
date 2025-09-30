@@ -29,6 +29,7 @@ export const translations = {
         subscriptionRequired: 'Deployment requires a subscription. Please finish subscribing from the User tab.',
         selectSite: 'Select a site to deploy.\n\nChoose a site in the User tab.',
         deployFailed: (message: string) => `Deployment failed: ${message}`,
+        unsavedFilesWarning: 'There are unsaved files. Continue with deployment?',
       },
       tooltips: {
         previewProcessing: 'Processing…',
@@ -49,6 +50,36 @@ export const translations = {
       saveTooltip: 'Save and add to history',
       savingTooltip: 'Saving…',
       historyDescription: 'Manual save',
+      saveAllButton: 'Save all',
+      addFileButton: 'Add file',
+      noChangesTooltip: 'No changes to save',
+      confirmDeleteFile: (name: string) => `Delete "${name}"?`,
+      renamePrompt: 'Enter a new file name',
+      activate: 'Activate file',
+      deactivate: 'Deactivate file',
+      rename: 'Rename',
+      delete: 'Delete',
+      noFileSelected: 'Select a file to begin editing.',
+      languageToggleLabel: 'Choose language mode',
+      languageDescription: {
+        javascript: 'Editing JavaScript draft',
+        css: 'Editing CSS draft',
+      },
+      fileStatus: {
+        active: 'Active',
+        inactive: 'Inactive',
+      },
+      badges: {
+        unsaved: 'Unsaved',
+      },
+      meta: {
+        unsaved: 'Unsaved changes pending',
+        upToDate: 'All changes saved',
+      },
+      fileStats: (active: number, inactive: number, total: number) =>
+        `Active ${active} | Inactive ${inactive} | Total ${total}`,
+      fileListTitle: 'Files',
+      fileCount: (count: number) => `${count} file${count === 1 ? '' : 's'}`,
     },
     chatTab: {
       title: 'AI Chat',
@@ -268,6 +299,7 @@ export const translations = {
         subscriptionRequired: '배포는 구독 기능입니다. User 탭에서 구독을 진행해주세요.',
         selectSite: '배포할 사이트를 선택해주세요.\n\n사용자 탭에서 사이트를 선택하세요.',
         deployFailed: (message: string) => `배포 실패: ${message}`,
+        unsavedFilesWarning: '저장하지 않은 파일이 있습니다. 그래도 배포할까요?',
       },
       tooltips: {
         previewProcessing: '처리 중…',
@@ -288,6 +320,36 @@ export const translations = {
       saveTooltip: '저장 및 히스토리 추가',
       savingTooltip: '저장 중…',
       historyDescription: '사용자 저장',
+      saveAllButton: '전체 저장',
+      addFileButton: '파일 추가',
+      noChangesTooltip: '변경 사항이 없습니다',
+      confirmDeleteFile: (name: string) => `“${name}” 파일을 삭제할까요?`,
+      renamePrompt: '새 파일 이름을 입력하세요',
+      activate: '파일 활성화',
+      deactivate: '파일 비활성화',
+      rename: '이름 변경',
+      delete: '삭제',
+      noFileSelected: '편집할 파일을 선택하세요.',
+      languageToggleLabel: '언어 모드 선택',
+      languageDescription: {
+        javascript: 'JavaScript 코드 편집 중',
+        css: 'CSS 스타일 편집 중',
+      },
+      fileStatus: {
+        active: '사용 중',
+        inactive: '비활성',
+      },
+      badges: {
+        unsaved: '미저장',
+      },
+      meta: {
+        unsaved: '저장되지 않은 변경 사항이 있습니다',
+        upToDate: '모든 변경 사항이 저장되었습니다',
+      },
+      fileStats: (active: number, inactive: number, total: number) =>
+        `사용 중 ${active} | 비활성 ${inactive} | 전체 ${total}`,
+      fileListTitle: '파일',
+      fileCount: (count: number) => `총 ${count}개`,
     },
     chatTab: {
       title: 'AI 채팅',

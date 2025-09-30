@@ -1,16 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { css } from '@codemirror/lang-css';
+import { EditorView } from '@codemirror/view';
+import { Save, Loader2, Check, X, Plus, Trash2, Circle, CheckCircle, MoreVertical } from 'lucide-react';
 import styles from '../styles/CodeEditTab.module.css';
 import { useAppContext } from '../contexts/AppContext';
-import { Save, Loader2, Check, X } from 'lucide-react';
-import { EditorView } from '@codemirror/view';
-import { persistHistoryStep } from '../services/versioning';
-import membershipService from '../services/membershipService';
 import { useTranslations } from '../hooks/useTranslations';
+import { SiteIntegrationService } from '../services/siteIntegration';
+import { filesToLanguageString, saveFileDraft } from '../utils/codeFiles';
 
-// CodeMirror 배경 투명 테마 (글래스 효과를 컨테이너에서 보이도록)
 const transparentTheme = EditorView.theme({
   '&': { backgroundColor: 'transparent' },
   '.cm-scroller': { backgroundColor: 'transparent' },
@@ -20,67 +19,65 @@ const transparentTheme = EditorView.theme({
 type Language = 'javascript' | 'css';
 
 export default function CodeEditTab() {
-  const { state, actions } = useAppContext();
+  const { state, actions, computed } = useAppContext();
+  const t = useTranslations();
+  const files = useMemo(() => [...state.codeFiles].sort((a, b) => a.order - b.order), [state.codeFiles]);
+  const selectedFile = computed.selectedFile;
+  const siteService = useMemo(() => SiteIntegrationService.getInstance(), []);
   const [language, setLanguage] = useState<Language>('javascript');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
   const lastPickRef = useRef<{ selector: string; ts: number }>({ selector: '', ts: 0 });
-  const t = useTranslations();
+  const activeFileCount = useMemo(() => files.filter(file => file.isActive).length, [files]);
+  const inactiveFileCount = files.length - activeFileCount;
+  const fileStatsLabel = t.codeEditor.fileStats(activeFileCount, inactiveFileCount, files.length);
+  const languageDescription = t.codeEditor.languageDescription[language];
 
-  // 요소 선택 결과를 활성 탭이 Code일 때 코드 에디터에 삽입
+  useEffect(() => {
+    if (!selectedFile) {
+      setLanguage('javascript');
+    }
+  }, [selectedFile?.id]);
+
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
-      if (e.source !== window || !e.data) return;
+      if (e.source !== window || !e.data || !selectedFile) return;
       const data = e.data as any;
-      if (data.type === 'SITE_TOPPING_ELEMENT_PICKED' && state.activeTab === 'code') {
-        const selector = String(data.selector || '').trim();
-        if (!selector) return;
-        const now = Date.now();
-        if (selector === lastPickRef.current.selector && now - lastPickRef.current.ts < 250) {
-          return;
-        }
-        lastPickRef.current = { selector, ts: now };
-        if (language === 'css') {
-          const snippet = `/* picked */\n${selector} {\n  /* TODO: style here */\n}\n`;
-          const current = state.editorCode.css || '';
-          // 첫 줄이 비어있으면 제거 후 상단에 삽입
-          const normalized = current.trim().length === 0 ? '' : current.replace(/^(?:\s*\n)+/, '');
-          const withSep = normalized
-            ? normalized + (normalized.endsWith('\n') ? '' : '\n\n')
-            : '';
-          actions.setEditorCode('css', withSep + snippet);
-        } else {
-          const snippet = `// picked\nconst el = document.querySelector(${JSON.stringify(selector)});\nif (el) {\n  // TODO: manipulate element\n}\n`;
-          const current = state.editorCode.javascript || '';
-          const normalized = current.trim().length === 0 ? '' : current.replace(/^(?:\s*\n)+/, '');
-          const withSep = normalized
-            ? normalized + (normalized.endsWith('\n') ? '' : '\n\n')
-            : '';
-          actions.setEditorCode('javascript', withSep + snippet);
-        }
+      if (data.type !== 'SITE_TOPPING_ELEMENT_PICKED') return;
+      const selector = String(data.selector || '').trim();
+      if (!selector || state.activeTab !== 'code') return;
+      const now = Date.now();
+      if (selector === lastPickRef.current.selector && now - lastPickRef.current.ts < 250) {
+        return;
+      }
+      lastPickRef.current = { selector, ts: now };
+      if (language === 'css') {
+        const snippet = `/* picked */\n${selector} {\n  /* TODO: style here */\n}\n`;
+        const current = selectedFile.draftCss || '';
+        const combined = current ? `${current}\n\n${snippet}` : snippet;
+        actions.updateFileDraft(selectedFile.id, 'css', combined);
+      } else {
+        const snippet = `// picked\nconst el = document.querySelector(${JSON.stringify(selector)});\nif (el) {\n  // TODO: manipulate element\n}\n`;
+        const current = selectedFile.draftJavascript || '';
+        const combined = current ? `${current}\n\n${snippet}` : snippet;
+        actions.updateFileDraft(selectedFile.id, 'javascript', combined);
       }
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [state.activeTab, language, state.editorCode.css, state.editorCode.javascript, actions]);
+  }, [state.activeTab, language, selectedFile, actions]);
 
-  // 저장 성공 아이콘을 2초 후 자동으로 숨김
   useEffect(() => {
     if (saveSuccess) {
-      const timer = setTimeout(() => {
-        setSaveSuccess(false);
-      }, 2000);
+      const timer = setTimeout(() => setSaveSuccess(false), 2000);
       return () => clearTimeout(timer);
     }
   }, [saveSuccess]);
 
-  // 저장 실패 아이콘을 2초 후 자동으로 숨김
   useEffect(() => {
     if (saveFailed) {
-      const timer = setTimeout(() => {
-        setSaveFailed(false);
-      }, 2000);
+      const timer = setTimeout(() => setSaveFailed(false), 2000);
       return () => clearTimeout(timer);
     }
   }, [saveFailed]);
@@ -90,156 +87,322 @@ export default function CodeEditTab() {
   };
 
   const handleEditorChange = (value: string | undefined) => {
-    actions.setEditorCode(language, value || '');
+    if (!selectedFile) return;
+    actions.updateFileDraft(selectedFile.id, language, value || '');
   };
 
   const handleSave = async () => {
-    if (isSaving) return;
+    if (!selectedFile || isSaving || !selectedFile.hasUnsavedChanges) return;
+    const siteCode = state.selectedSiteCode;
+    const deployedScript = state.serverCode.deployedScript;
+    const deployedCss = state.serverCode.deployedCss;
+
+    const nextFiles = state.codeFiles.map(file => {
+      if (file.id === selectedFile.id) {
+        return saveFileDraft({ ...file });
+      }
+      return { ...file };
+    });
+
+    const draftScript = filesToLanguageString(nextFiles, 'javascript', true, true);
+    const draftCss = filesToLanguageString(nextFiles, 'css', true, true);
 
     try {
       setIsSaving(true);
       setSaveSuccess(false);
       setSaveFailed(false);
+      await new Promise(resolve => setTimeout(resolve, 300));
 
-      // 500ms 최소 로딩 시간
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      // 서버 버전 생성 (수동 저장 시에도 생성)
-      try {
-        const siteCode = state.selectedSiteCode;
-        if (siteCode) {
-          const status = await membershipService.getStatus();
-          const isSubscribed = !!status && status.level > 0 && !status.is_expired;
-          if (isSubscribed) {
-            const stack = state.codeHistoryStack;
-            const previous = stack.length > 0
-              ? { javascript: stack[stack.length - 1].javascript, css: stack[stack.length - 1].css }
-              : { javascript: '', css: '' };
-            const current = { javascript: state.editorCode.javascript, css: state.editorCode.css };
-
-            // 무변경이면 서버 저장 스킵
-            const noChange = previous.javascript === current.javascript && previous.css === current.css;
-            if (!noChange) {
-              await persistHistoryStep({ siteCode, previous, current });
-            } else {
-            }
-          } else {
-          }
-        } else {
-        }
-      } catch (e) {
-        console.error('수동 저장 서버 버전 생성 실패:', e);
-        // 서버 실패해도 로컬 히스토리는 유지
+      if (siteCode) {
+        const response = await siteService.saveDraftScript(siteCode, {
+          draftScriptContent: draftScript,
+          draftCssContent: draftCss,
+        });
+        actions.setServerCode(
+          response.draft_script_content ?? draftScript,
+          response.draft_css_content ?? draftCss,
+          response.script_content ?? deployedScript ?? null,
+          response.css_content ?? deployedCss ?? null,
+        );
       }
-      
-      // 현재 코드 상태를 히스토리에 푸시 (무변경이면 로컬 히스토리도 스킵)
-      {
-        const stack = state.codeHistoryStack;
-        const prevLocal = stack.length > 0
-          ? { javascript: stack[stack.length - 1].javascript, css: stack[stack.length - 1].css }
-          : { javascript: '', css: '' };
-        const currLocal = { javascript: state.editorCode.javascript, css: state.editorCode.css };
-        const noLocalChange = prevLocal.javascript === currLocal.javascript && prevLocal.css === currLocal.css;
-        if (!noLocalChange) {
-          actions.pushCodeHistory({
-            javascript: currLocal.javascript,
-            css: currLocal.css,
-            description: t.codeEditor.historyDescription,
-            isSuccessful: true,
-          });
-        } else {
-        }
-      }
-      
+
+      actions.saveFile(selectedFile.id);
       setSaveSuccess(true);
-
     } catch (error) {
       console.error('저장 실패:', error);
+      if (error instanceof Error) {
+        alert(error.message);
+      }
       setSaveFailed(true);
     } finally {
       setIsSaving(false);
     }
   };
 
+  const handleSaveAll = async () => {
+    if (!computed.hasUnsavedFiles || isSaving) return;
+    const siteCode = state.selectedSiteCode;
+    const deployedScript = state.serverCode.deployedScript;
+    const deployedCss = state.serverCode.deployedCss;
+    const nextFiles = state.codeFiles.map(file => saveFileDraft({ ...file }));
+    const draftScript = filesToLanguageString(nextFiles, 'javascript', true, true);
+    const draftCss = filesToLanguageString(nextFiles, 'css', true, true);
+    try {
+      setIsSaving(true);
+      setSaveSuccess(false);
+      setSaveFailed(false);
+      await new Promise(resolve => setTimeout(resolve, 300));
+      if (siteCode) {
+        const response = await siteService.saveDraftScript(siteCode, {
+          draftScriptContent: draftScript,
+          draftCssContent: draftCss,
+        });
+        actions.setServerCode(
+          response.draft_script_content ?? draftScript,
+          response.draft_css_content ?? draftCss,
+          response.script_content ?? deployedScript ?? null,
+          response.css_content ?? deployedCss ?? null,
+        );
+      }
+
+      actions.saveAllFiles();
+      setSaveSuccess(true);
+    } catch (error) {
+      console.error('전체 저장 실패:', error);
+      if (error instanceof Error) {
+        alert(error.message);
+      }
+      setSaveFailed(true);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleAddFile = () => {
+    actions.createFile();
+  };
+
+  const handleDeleteFile = (fileId: string) => {
+    if (files.length <= 1) return;
+    const target = files.find(file => file.id === fileId);
+    if (!target) return;
+    const confirmed = window.confirm(t.codeEditor.confirmDeleteFile(target.name));
+    if (confirmed) {
+      actions.deleteFile(fileId);
+    }
+  };
+
+  const handleRenameFile = (fileId: string, name: string) => {
+    const nextName = window.prompt(t.codeEditor.renamePrompt, name);
+    if (!nextName) return;
+    actions.renameFile(fileId, nextName.trim());
+  };
+
+  const handleToggleActive = (fileId: string, current: boolean) => {
+    actions.setFileActive(fileId, !current);
+  };
+
+  const currentCode = selectedFile
+    ? (language === 'javascript' ? selectedFile.draftJavascript : selectedFile.draftCss)
+    : '';
+
   return (
     <div className={styles.container}>
-      <div className={styles.header}>
-        <div className={styles.headerContent}>
-          {/* 액션/언어 선택 영역 */}
-          <div className={styles.actionsRow}>
-            <div className={styles.languageSelector}>
+      <aside className={styles.filePanel}>
+        <div className={styles.filePanelHeader}>
+          <div className={styles.listInfo}>
+            <div className={styles.listTitleRow}>
+              <span className={styles.listTitle}>{t.codeEditor.fileListTitle}</span>
+              <span className={styles.listMeta}>{t.codeEditor.fileCount(files.length)}</span>
+            </div>
+            <div className={styles.fileStats} aria-live="polite">
+              {fileStatsLabel}
+            </div>
+          </div>
+          <div className={styles.panelActions}>
+            <button
+              type="button"
+              className={styles.plainButton}
+              onClick={handleAddFile}
+              title={t.codeEditor.addFileButton}
+            >
+              <Plus size={14} />
+              <span>{t.codeEditor.addFileButton}</span>
+            </button>
+            <button
+              type="button"
+              className={styles.plainButton}
+              onClick={handleSaveAll}
+              disabled={!computed.hasUnsavedFiles || isSaving}
+            >
+              <Save size={14} />
+              {t.codeEditor.saveAllButton}
+            </button>
+          </div>
+        </div>
+        <ul className={styles.fileList}>
+          {files.map(file => {
+            const isSelected = file.id === selectedFile?.id;
+            const fileStateLabel = file.isActive ? t.codeEditor.fileStatus.active : t.codeEditor.fileStatus.inactive;
+            return (
+              <li key={file.id} className={`${styles.fileItem} ${isSelected ? styles.selectedFile : ''}`}>
+                <button
+                  type="button"
+                  className={styles.fileMainButton}
+                  onClick={() => actions.setSelectedFile(file.id)}
+                >
+                  <span className={styles.fileStatusIcon}>
+                    {file.isActive ? <CheckCircle size={14} /> : <Circle size={14} />}
+                  </span>
+                  <span className={styles.fileInfo}>
+                    <span className={styles.fileNameRow}>
+                      <span className={styles.fileName}>{file.name}</span>
+                      {file.hasUnsavedChanges && (
+                        <span
+                          className={styles.unsavedDot}
+                          title={t.codeEditor.badges.unsaved}
+                          aria-hidden="true"
+                        />
+                      )}
+                    </span>
+                    <span
+                      className={`${styles.fileStateLabel} ${file.isActive ? styles.fileStateActive : styles.fileStateInactive}`}
+                    >
+                      {fileStateLabel}
+                    </span>
+                  </span>
+                </button>
+                <div className={styles.fileActions}>
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    onClick={() => handleToggleActive(file.id, file.isActive)}
+                    title={file.isActive ? t.codeEditor.deactivate : t.codeEditor.activate}
+                  >
+                    {file.isActive ? <Check size={12} /> : <Circle size={12} />}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    onClick={() => handleRenameFile(file.id, file.name)}
+                    title={t.codeEditor.rename}
+                  >
+                    <MoreVertical size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    onClick={() => handleDeleteFile(file.id)}
+                    title={t.codeEditor.delete}
+                    disabled={files.length <= 1}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </aside>
+      <div className={styles.mainColumn}>
+        <div className={styles.mainHeader}>
+          <div className={styles.fileSummary}>
+            {selectedFile ? (
+              <>
+                <div className={styles.fileTitleRow}>
+                  <span className={styles.fileTitle}>{selectedFile.name}</span>
+                  <span
+                    className={`${styles.badge} ${selectedFile.isActive ? styles.badgeActive : styles.badgeInactive}`}
+                  >
+                    {selectedFile.isActive ? t.codeEditor.fileStatus.active : t.codeEditor.fileStatus.inactive}
+                  </span>
+                  {selectedFile.hasUnsavedChanges && (
+                    <span className={`${styles.badge} ${styles.badgeUnsaved}`}>
+                      {t.codeEditor.badges.unsaved}
+                    </span>
+                  )}
+                </div>
+                <div className={styles.fileMetaRow}>
+                  <span>{languageDescription}</span>
+                  <span className={styles.metaDivider}>|</span>
+                  <span>{selectedFile.hasUnsavedChanges ? t.codeEditor.meta.unsaved : t.codeEditor.meta.upToDate}</span>
+                </div>
+              </>
+            ) : (
+              <div className={styles.fileTitleRow}>{t.codeEditor.noFileSelected}</div>
+            )}
+          </div>
+          <div className={styles.mainActions}>
+            <div className={styles.languageSelector} role="group" aria-label={t.codeEditor.languageToggleLabel}>
               <button
-                className={`${styles.languageButton} ${language === 'javascript' ? styles.active : ''}`}
+                type="button"
+                className={`${styles.languageButton} ${language === 'javascript' ? styles.languageButtonActive : ''}`}
                 onClick={() => handleLanguageChange('javascript')}
+                disabled={!selectedFile}
               >
-                <svg width="14px" height="14px" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMinYMin meet">
-                  <path d="M0 0h256v256H0V0z" fill="#F7DF1E"/>
-                  <path d="M67.312 213.932l19.59-11.856c3.78 6.701 7.218 12.371 15.465 12.371 7.905 0 12.89-3.092 12.89-15.12v-81.798h24.057v82.138c0 24.917-14.606 36.259-35.916 36.259-19.245 0-30.416-9.967-36.087-21.996M152.381 211.354l19.588-11.341c5.157 8.421 11.859 14.607 23.715 14.607 9.969 0 16.325-4.984 16.325-11.858 0-8.248-6.53-11.17-17.528-15.98l-6.013-2.58c-17.357-7.387-28.87-16.667-28.87-36.257 0-18.044 13.747-31.792 35.228-31.792 15.294 0 26.292 5.328 34.196 19.247L210.29 147.43c-4.125-7.389-8.591-10.31-15.465-10.31-7.046 0-11.514 4.468-11.514 10.31 0 7.217 4.468 10.14 14.778 14.608l6.014 2.577c20.45 8.765 31.963 17.7 31.963 37.804 0 21.654-17.012 33.51-39.867 33.51-22.339 0-36.774-10.654-43.819-24.574"/>
-                </svg>
                 JavaScript
               </button>
               <button
-                className={`${styles.languageButton} ${language === 'css' ? styles.active : ''}`}
+                type="button"
+                className={`${styles.languageButton} ${language === 'css' ? styles.languageButtonActive : ''}`}
                 onClick={() => handleLanguageChange('css')}
+                disabled={!selectedFile}
               >
-                <svg width="14px" height="14px" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M6 28L4 3H28L26 28L16 31L6 28Z" fill="#1172B8"/>
-                  <path d="M26 5H16V29.5L24 27L26 5Z" fill="#33AADD"/>
-                  <path d="M19.5 17.5H9.5L9 14L17 11.5H9L8.5 8.5H24L23.5 12L17 14.5H23L22 24L16 26L10 24L9.5 19H12.5L13 21.5L16 22.5L19 21.5L19.5 17.5Z" fill="white"/>
-                </svg>
                 CSS
               </button>
             </div>
-
-            <div className={styles.actionButtons}>
-              <button 
-                className={`${styles.saveButton} ${isSaving ? styles.loading : ''}`}
-                onClick={handleSave} 
-                disabled={isSaving}
-                title={isSaving ? t.codeEditor.savingTooltip : t.codeEditor.saveTooltip}
-              >
-                {isSaving ? (
-                  <Loader2 size={14} className={styles.spinner} />
-                ) : saveSuccess ? (
-                  <Check size={14} className={styles.successIcon} />
-                ) : saveFailed ? (
-                  <X size={14} className={styles.failedIcon} />
-                ) : (
-                  <Save size={14} />
-                )}
-                {t.codeEditor.saveButton}
-              </button>
-            </div>
+            <button
+              type="button"
+              className={`${styles.saveButton} ${isSaving ? styles.loading : ''}`}
+              onClick={handleSave}
+              disabled={!selectedFile || !selectedFile.hasUnsavedChanges || isSaving}
+              title={selectedFile?.hasUnsavedChanges ? t.codeEditor.saveTooltip : t.codeEditor.noChangesTooltip}
+            >
+              {isSaving ? (
+                <Loader2 size={14} className={styles.spinner} />
+              ) : saveSuccess ? (
+                <Check size={14} className={styles.successIcon} />
+              ) : saveFailed ? (
+                <X size={14} className={styles.failedIcon} />
+              ) : (
+                <Save size={14} />
+              )}
+              {t.codeEditor.saveButton}
+            </button>
           </div>
         </div>
-      </div>
-      <div className={styles.editorContainer}>
-        <CodeMirror
-          value={state.editorCode[language]}
-          onChange={handleEditorChange}
-          theme={'light'}
-          height="100%"
-          extensions={[
-            language === 'javascript' ? javascript() : css(),
-            transparentTheme,
-          ]}
-          basicSetup={{
-            lineNumbers: true,
-            foldGutter: true,
-            dropCursor: false,
-            allowMultipleSelections: false,
-            indentOnInput: true,
-            bracketMatching: true,
-            closeBrackets: true,
-            autocompletion: true,
-            highlightSelectionMatches: false,
-            searchKeymap: true
-          }}
-          style={{
-            height: '100%',
-            fontSize: '14px'
-          }}
-        />
+        <div className={styles.editorContainer}>
+          {selectedFile ? (
+            <CodeMirror
+              value={currentCode}
+              onChange={handleEditorChange}
+              theme={'light'}
+              height="100%"
+              extensions={[
+                language === 'javascript' ? javascript() : css(),
+                transparentTheme,
+              ]}
+              basicSetup={{
+                lineNumbers: true,
+                foldGutter: true,
+                dropCursor: false,
+                allowMultipleSelections: false,
+                indentOnInput: true,
+                bracketMatching: true,
+                closeBrackets: true,
+                autocompletion: true,
+                highlightSelectionMatches: false,
+                searchKeymap: true
+              }}
+              style={{
+                height: '100%',
+                fontSize: '14px'
+              }}
+            />
+          ) : (
+            <div className={styles.emptyState}>{t.codeEditor.noFileSelected}</div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -17,7 +17,7 @@ interface PanelHeaderProps {
 }
 
 export default function PanelHeader({}: PanelHeaderProps) {
-  const { state, actions } = useAppContext();
+  const { state, actions, computed } = useAppContext();
   const { activeTab } = state;
   const [isDeploying, setIsDeploying] = useState(false);
   const [deploySuccess, setDeploySuccess] = useState(false);
@@ -38,7 +38,7 @@ export default function PanelHeader({}: PanelHeaderProps) {
   // (헤더) 지갑 잔액 배지는 제거됨
 
   const handleDeploy = async () => {
-    if (isDeploying) return;
+    if (isDeploying || !computed.hasPendingDeployment) return;
 
     try {
       setIsDeploying(true);
@@ -63,13 +63,24 @@ export default function PanelHeader({}: PanelHeaderProps) {
         return;
       }
 
-      // CSS와 JavaScript 코드를 분리해서 배포
-      const cssContent = state.editorCode.css || '';
-      const jsContent = state.editorCode.javascript || '';
+      if (computed.hasUnsavedFiles) {
+        const proceed = window.confirm(t.panelHeader.alerts.unsavedFilesWarning);
+        if (!proceed) {
+          setDeployFailed(true);
+          return;
+        }
+      }
 
-
-      // 서버에 배포 (CSS와 JS 분리)
-      await siteService.deployScript(state.selectedSiteCode, cssContent, jsContent);
+      const response = await siteService.deployScript(state.selectedSiteCode, {
+        draftScriptContent: computed.draftScript,
+        draftCssContent: computed.draftCss,
+      });
+      actions.setServerCode(
+        response.draft_script_content ?? computed.draftScript,
+        response.draft_css_content ?? computed.draftCss,
+        response.script_content ?? computed.draftScript ?? null,
+        response.css_content ?? computed.draftCss ?? null,
+      );
       
       setDeploySuccess(true);
 
@@ -114,8 +125,8 @@ export default function PanelHeader({}: PanelHeaderProps) {
   // 프리뷰 실시간 업데이트 훅으로 대체
   usePreviewLive({
     isPreviewMode: state.isPreviewMode,
-    javascript: state.editorCode.javascript,
-    css: state.editorCode.css,
+    javascript: computed.activeJavascript,
+    css: computed.activeCss,
   });
 
   // 배포 성공 아이콘을 2초 후 자동으로 숨김
@@ -182,7 +193,7 @@ export default function PanelHeader({}: PanelHeaderProps) {
         </IconButton>
         <IconButton
           loading={isDeploying}
-          disabled={!isSubscribed}
+          disabled={!isSubscribed || !computed.hasPendingDeployment || isDeploying}
           onClick={handleDeploy}
           title={isDeploying ? t.panelHeader.tooltips.deploying : (!isSubscribed ? t.panelHeader.tooltips.subscriptionRequired : t.panelHeader.tooltips.deploy)}
         >
@@ -236,7 +247,7 @@ export default function PanelHeader({}: PanelHeaderProps) {
 
       <div className={styles.tabBar}>
         {/* divider */}
-  <Divider />
+        <Divider />
         <button 
           className={`${styles.tabBtn} ${activeTab === TABS.CHAT ? styles.active : ''}`}
           onClick={() => switchTab(TABS.CHAT)}

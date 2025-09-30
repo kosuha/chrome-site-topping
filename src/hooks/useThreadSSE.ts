@@ -4,6 +4,7 @@ import aiService from '../services/aiService';
 import codeAnalyzer from '../services/codeAnalyzer';
 import { calculateChangeSummary } from '../utils/changeSummary';
 import { ChatMessage, useAppContext } from '../contexts/AppContext';
+import { applyLanguageStringToFiles, normaliseOrder, cloneFiles } from '../utils/codeFiles';
 
 export default function useThreadSSE() {
   const { state, actions } = useAppContext();
@@ -100,16 +101,27 @@ export default function useThreadSSE() {
                       if (extractedChanges?.css) {
                         changeSummary.css = calculateChangeSummary(currentCodeObj.css, mergedCode.css || '');
                       }
+                      let updatedFiles = stateRef.current.codeFiles;
+                      if (mergedCode.javascript) {
+                        updatedFiles = applyLanguageStringToFiles(updatedFiles, mergedCode.javascript, 'javascript');
+                      }
+                      if (mergedCode.css) {
+                        updatedFiles = applyLanguageStringToFiles(updatedFiles, mergedCode.css, 'css');
+                      }
+                      const normalisedFiles = normaliseOrder(updatedFiles);
                       actions.pushCodeHistory({
-                        javascript: mergedCode.javascript || '',
-                        css: mergedCode.css || '',
+                        files: cloneFiles(normalisedFiles),
                         messageId: message_id,
                         description: 'AI 자동 적용 완료 (SSE)',
                         changeSummary,
                         isSuccessful: true
                       });
-                      actions.setEditorCode('javascript', mergedCode.javascript || '');
-                      actions.setEditorCode('css', mergedCode.css || '');
+                      if (mergedCode.javascript !== undefined) {
+                        actions.setEditorCode('javascript', mergedCode.javascript);
+                      }
+                      if (mergedCode.css !== undefined) {
+                        actions.setEditorCode('css', mergedCode.css);
+                      }
                       actions.setLastAppliedChange(message_id, new Date());
                     } catch (e) {
                       console.error('❌ SSE 자동 적용 실패:', e);
@@ -150,16 +162,27 @@ export default function useThreadSSE() {
                         if (extractedChanges?.css) {
                           changeSummary.css = calculateChangeSummary(currentCodeObj.css, mergedCode.css || '');
                         }
+                        let updatedFiles = stateRef.current.codeFiles;
+                        if (mergedCode.javascript) {
+                          updatedFiles = applyLanguageStringToFiles(updatedFiles, mergedCode.javascript, 'javascript');
+                        }
+                        if (mergedCode.css) {
+                          updatedFiles = applyLanguageStringToFiles(updatedFiles, mergedCode.css, 'css');
+                        }
+                        const normalisedFiles = normaliseOrder(updatedFiles);
                         actions.pushCodeHistory({
-                          javascript: mergedCode.javascript || '',
-                          css: mergedCode.css || '',
+                          files: cloneFiles(normalisedFiles),
                           messageId: message_id,
                           description: 'AI 자동 적용 완료 (SSE 신규)',
                           changeSummary,
                           isSuccessful: true
                         });
-                        actions.setEditorCode('javascript', mergedCode.javascript || '');
-                        actions.setEditorCode('css', mergedCode.css || '');
+                        if (mergedCode.javascript !== undefined) {
+                          actions.setEditorCode('javascript', mergedCode.javascript);
+                        }
+                        if (mergedCode.css !== undefined) {
+                          actions.setEditorCode('css', mergedCode.css);
+                        }
                         actions.setLastAppliedChange(message_id, new Date());
                       } catch (e) {
                         console.error('❌ SSE 신규 메시지 적용 실패:', e);

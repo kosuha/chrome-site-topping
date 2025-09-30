@@ -236,8 +236,8 @@ export default function ChatTab() {
 
   try {
       const pageContext = domExtractor.createFullContext(
-        state.editorCode.javascript,
-        state.editorCode.css
+        computed.activeJavascript,
+        computed.activeCss
       );
 
       const siteCode = state.selectedSiteCode;
@@ -248,8 +248,8 @@ export default function ChatTab() {
         {
           pageContext: pageContext,
           userCode: {
-            javascript: state.editorCode.javascript,
-            css: state.editorCode.css,
+            javascript: computed.activeJavascript,
+            css: computed.activeCss,
           },
           pageUrl: window.location.href,
           domInfo: domExtractor.extractPageDOM(),
