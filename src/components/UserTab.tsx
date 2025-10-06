@@ -33,14 +33,6 @@ export default function UserTab() {
   const [walletError, setWalletError] = useState<string>('')
   const [walletBalance, setWalletBalance] = useState<number>(0)
   const [walletTotalSpent, setWalletTotalSpent] = useState<number>(0)
-  const [recentTxs, setRecentTxs] = useState<Array<{
-    id: string;
-    type: 'debit' | 'credit';
-    amount_usd: number;
-    model_name?: string;
-    created_at: string;
-  }>>([])
-
   
   const siteService = SiteIntegrationService.getInstance()
 
@@ -85,8 +77,7 @@ export default function UserTab() {
     // 사용자가 로그인한 경우 연동된 사이트 목록 로드
     if (user) {
       loadConnectedSites();
-  // 지갑/거래 로드
-  fetchWalletAndTransactions();
+      fetchWallet();
     }
   }, [user])
 
@@ -148,25 +139,15 @@ export default function UserTab() {
   }
 
   // Wallet fetcher
-  const fetchWalletAndTransactions = async () => {
+  const fetchWallet = async () => {
     if (!user) return;
     setWalletError('')
     setWalletLoading(true)
     try {
       const { default: tokenService } = await import('../services/tokenService')
-      const [wallet, txs] = await Promise.all([
-        tokenService.getWallet(),
-        tokenService.getTransactions(5)
-      ])
+      const wallet = await tokenService.getWallet()
       setWalletBalance(Number(wallet.balance_usd || 0))
       setWalletTotalSpent(Number(wallet.total_spent_usd || 0))
-      setRecentTxs((txs || []).map(tx => ({
-        id: tx.id,
-        type: tx.type,
-        amount_usd: Number(tx.amount_usd || 0),
-        model_name: tx.model_name,
-        created_at: tx.created_at,
-      })))
     } catch (e) {
       setWalletError(e instanceof Error ? e.message : t.userTab.credits.errors.loadFailed)
     } finally {
@@ -176,7 +157,7 @@ export default function UserTab() {
 
   // SSE 차감 후 새로고침 이벤트
   useEffect(() => {
-    const handler = () => fetchWalletAndTransactions();
+    const handler = () => fetchWallet();
     window.addEventListener('SITE_TOPPING_REFRESH_WALLET', handler as EventListener)
     return () => window.removeEventListener('SITE_TOPPING_REFRESH_WALLET', handler as EventListener)
   }, [])
@@ -501,48 +482,52 @@ export default function UserTab() {
                 <span className={styles.errorText}>{membershipError}</span>
               </div>
             )}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Crown size={18} style={{ color: isSubscribed ? '#fbbf24' : '#9ca3af' }} />
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 600 }}>
-                    {membershipStatusLabel}
-                  </div>
-                  <div style={{ fontSize: 12, color: '#666' }}>
-                    {membershipDetail}
-                  </div>
-                </div>
+            <div className={styles.membershipHeader}>
+              <div
+                className={`${styles.membershipIcon} ${isSubscribed ? styles.membershipIconActive : styles.membershipIconInactive}`}
+              >
+                <Crown size={18} />
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <button
-                  onClick={() => {
-                    const url = import.meta.env.VITE_SUBSCRIBE_URL as string | undefined;
-                    if (url) {
-                      window.open(url, '_blank');
-                    } else {
-                      alert(t.userTab.membership.subscribeInfo);
-                    }
-                  }}
-                  className={styles.signOutButton}
-                  title={subscriptionButtonLabel}
-                >
-                  {subscriptionButtonLabel}
-                </button>
-                <button
-                  onClick={() => void refreshMembership()}
-                  className={styles.refreshWalletButton}
-                  disabled={membershipLoading}
-                  title={t.userTab.membership.refreshTooltip}
-                >
-                  {membershipLoading ? <Loader2 className={styles.spinnerIcon} /> : <RotateCw size={14} />}
-                  {t.common.refresh}
-                </button>
+              <div className={styles.membershipContent}>
+                <span className={styles.membershipStatusLabel}>{membershipStatusLabel}</span>
+                {membershipDetail && (
+                  <span className={styles.membershipDetail}>{membershipDetail}</span>
+                )}
               </div>
             </div>
+            <div className={styles.membershipActions}>
+              <button
+                onClick={() => {
+                  const url = import.meta.env.VITE_SUBSCRIBE_URL as string | undefined
+                  if (url) {
+                    window.open(url, '_blank')
+                  } else {
+                    alert(t.userTab.membership.subscribeInfo)
+                  }
+                }}
+                className={`${styles.button} ${styles.primaryButton} ${styles.pillButton}`}
+                title={subscriptionButtonLabel}
+              >
+                {subscriptionButtonLabel}
+              </button>
+              <button
+                onClick={() => void refreshMembership()}
+                className={`${styles.button} ${styles.ghostButton}`}
+                disabled={membershipLoading}
+                title={t.userTab.membership.refreshTooltip}
+              >
+                {membershipLoading ? (
+                  <Loader2 className={styles.spinnerIcon} />
+                ) : (
+                  <RotateCw size={16} />
+                )}
+                <span>{t.common.refresh}</span>
+              </button>
+            </div>
             {!isSubscribed && (
-              <div style={{ marginTop: 10, fontSize: 12, color: '#666' }}>
+              <p className={styles.membershipBenefit}>
                 {t.userTab.membership.benefits}
-              </div>
+              </p>
             )}
           </div>
         </div>
@@ -560,66 +545,51 @@ export default function UserTab() {
             )}
             <div className={styles.walletGrid}>
               <div className={styles.walletCard}>
-                <div className={styles.walletLabel}><Coins size={16} /> {t.userTab.credits.balanceLabel}</div>
-                <div className={styles.walletValue}>{walletLoading ? '...' : walletBalance.toFixed(2)}<span className={styles.walletUnit}> {t.common.creditsUnit}</span></div>
+                <div className={styles.walletLabel}>
+                  <Coins size={16} />
+                  <span>{t.userTab.credits.balanceLabel}</span>
+                </div>
+                <div className={styles.walletValue}>
+                  {walletLoading ? '...' : walletBalance.toFixed(2)}
+                  <span className={styles.walletUnit}> {t.common.creditsUnit}</span>
+                </div>
               </div>
               <div className={styles.walletCard}>
-                <div className={styles.walletLabel}>{t.userTab.credits.spentLabel}</div>
-                <div className={styles.walletValue}>{walletLoading ? '...' : walletTotalSpent.toFixed(2)}<span className={styles.walletUnit}> {t.common.creditsUnit}</span></div>
-              </div>
-              <div className={styles.walletActions}>
-                <button
-                  onClick={() => {
-                    const url = import.meta.env.VITE_CREDIT_TOPUP_URL as string | undefined
-                    if (url) {
-                      window.open(url, '_blank')
-                    } else {
-                      alert(t.userTab.credits.purchaseInfo)
-                    }
-                  }}
-                  className={styles.walletTopupButton}
-                  title={t.userTab.credits.purchaseTitle}
-                >
-                  {t.userTab.credits.purchase}
-                </button>
-                <button
-                  onClick={fetchWalletAndTransactions}
-                  className={styles.refreshWalletButton}
-                  disabled={walletLoading}
-                  title={t.userTab.credits.refreshTooltip}
-                >
-                  {walletLoading ? <Loader2 className={styles.spinnerIcon} /> : <RotateCw size={14} />}
-                  {t.common.refresh}
-                </button>
+                <div className={styles.walletLabel}>
+                  <span>{t.userTab.credits.spentLabel}</span>
+                </div>
+                <div className={styles.walletValue}>
+                  {walletLoading ? '...' : walletTotalSpent.toFixed(2)}
+                  <span className={styles.walletUnit}> {t.common.creditsUnit}</span>
+                </div>
               </div>
             </div>
 
-            <div className={styles.walletTxSection}>
-              <div className={styles.walletTxHeader}>{t.userTab.credits.recentTransactions}</div>
-              {recentTxs.length === 0 ? (
-                <div className={styles.walletTxEmpty}>{t.userTab.credits.noTransactions}</div>
-              ) : (
-                <table className={styles.walletTxTable}>
-                  <thead>
-                    <tr>
-                      <th>{t.userTab.credits.headers.date}</th>
-                      <th>{t.userTab.credits.headers.type}</th>
-                      <th>{t.userTab.credits.headers.amount}</th>
-                      <th>{t.userTab.credits.headers.model}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recentTxs.map(tx => (
-                      <tr key={tx.id}>
-                        <td>{new Date(tx.created_at).toLocaleString()}</td>
-                        <td className={tx.type === 'debit' ? styles.txDebit : styles.txCredit}>{tx.type === 'debit' ? t.userTab.credits.type.debit : t.userTab.credits.type.credit}</td>
-                        <td>{tx.type === 'debit' ? '-' : '+'}{Math.abs(tx.amount_usd).toFixed(3)} {t.common.creditsUnit}</td>
-                        <td>{tx.model_name || '-'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+            <div className={styles.walletActions}>
+              <button
+                onClick={() => {
+                  const url = import.meta.env.VITE_CREDIT_TOPUP_URL as string | undefined
+                  if (url) {
+                    window.open(url, '_blank')
+                  } else {
+                    alert(t.userTab.credits.purchaseInfo)
+                  }
+                }}
+                className={`${styles.button} ${styles.primaryButton}`}
+                title={t.userTab.credits.purchaseTitle}
+              >
+                <Coins size={16} />
+                {t.userTab.credits.purchase}
+              </button>
+              <button
+                onClick={fetchWallet}
+                className={`${styles.button} ${styles.ghostButton}`}
+                disabled={walletLoading}
+                title={t.userTab.credits.refreshTooltip}
+              >
+                {walletLoading ? <Loader2 className={styles.spinnerIcon} /> : <RotateCw size={16} />}
+                <span>{t.common.refresh}</span>
+              </button>
             </div>
           </div>
         </div>
@@ -633,10 +603,17 @@ export default function UserTab() {
             {getCurrentSiteStatus() ? (() => {
               const status = getCurrentSiteStatus()!
               const statusClass = status.connection_status || 'disconnected'
+              const statusClassName = (
+                {
+                  connected: styles.statusBadgeConnected,
+                  disconnected: styles.statusBadgeDisconnected,
+                  checking: styles.statusBadgeChecking
+                } as const
+              )[statusClass] || styles.statusBadgeDisconnected
               const statusText = getStatusText(status.connection_status || 'disconnected')
               return (
                 <div className={styles.statusRow}>
-                  <span className={`${styles.statusBadge} ${styles[statusClass]}`}>
+                  <span className={`${styles.statusBadge} ${statusClassName}`}>
                     {statusText}
                   </span>
                   <button 
@@ -645,12 +622,17 @@ export default function UserTab() {
                     disabled={isChecking}
                     title={t.userTab.currentDomain.refreshTooltip}
                   >
-                    <RotateCw size={14} />
+                    {isChecking ? (
+                      <Loader2 className={styles.spinnerIcon} />
+                    ) : (
+                      <RotateCw size={16} />
+                    )}
+                    <span>{t.common.refresh}</span>
                   </button>
                 </div>
               )
             })() : (
-              <span className={`${styles.statusBadge} ${styles.disconnected}`}>
+              <span className={`${styles.statusBadge} ${styles.statusBadgeDisconnected}`}>
                 {t.userTab.currentDomain.missing}
               </span>
             )}
