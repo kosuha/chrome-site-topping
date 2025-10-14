@@ -49,9 +49,11 @@ export interface SendChatMessageResponse {
         // 새로운 통합 Git diff 형식
         changes?: {
           javascript?: {
+            file_id: string;
             diff: string;
           };
           css?: {
+            file_id: string;
             diff: string;
           };
         };

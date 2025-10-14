@@ -7,9 +7,10 @@ interface Props {
   code: string;
   changeSummary?: string;
   isSuccessful?: boolean;
+  fileId?: string;
 }
 
-export default function CodeChangeBlock({ language, code, changeSummary, isSuccessful = true }: Props) {
+export default function CodeChangeBlock({ language, code, changeSummary, isSuccessful = true, fileId }: Props) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const parseDiffLines = (diffText: string) => {
@@ -38,7 +39,10 @@ export default function CodeChangeBlock({ language, code, changeSummary, isSucce
           )}
         </div>
         <div className={styles.codeChangeContent}>
-          <span className={styles.codeChangeTitle}>{language}</span>
+          <span className={styles.codeChangeTitle}>
+            {language}
+            {fileId ? <span className={styles.codeChangeFileId}> · {fileId}</span> : null}
+          </span>
           <span className={styles.codeChangeSummary}>
             <span className={styles.addition}>+{changeSummary?.split('−')[0]?.replace('+', '') || '0'}</span>{' '}
             <span className={styles.deletion}>−{changeSummary?.split('−')[1] || '0'}</span>

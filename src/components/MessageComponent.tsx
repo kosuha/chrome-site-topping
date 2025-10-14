@@ -8,7 +8,27 @@ import { useTranslations } from '../hooks/useTranslations';
 export default function MessageComponent({ message }: { message: ChatMessage }) {
   const { state } = useAppContext();
   const t = useTranslations();
-  const { text } = parseCodeBlocks(message.content);
+  const parsedJson = (() => {
+    if (message.type !== 'assistant') return null;
+    const raw = message.content?.trim();
+    if (!raw || raw[0] !== '{') return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  })();
+
+  const contentText = (() => {
+    if (parsedJson && typeof parsedJson.message === 'string') {
+      return parsedJson.message;
+    }
+    return message.content;
+  })();
+
+  const { text } = parseCodeBlocks(contentText || '');
+
+  const effectiveChanges = message.changes ?? (parsedJson?.changes ?? undefined);
 
   const isMessageApplied = () => {
     if (!message.id) return false;
@@ -84,29 +104,31 @@ export default function MessageComponent({ message }: { message: ChatMessage }) 
           <div className={`${styles.messageBubble} ${styles[message.type]}`}>{text}</div>
         ) : null}
 
-        {message.changes && (
+        {effectiveChanges && (
           <div className={styles.aiCodeSection}>
-            {message.changes.javascript && (
+            {effectiveChanges.javascript && (
               <CodeChangeBlock
                 language="JavaScript"
-                code={message.changes.javascript.diff}
+                code={effectiveChanges.javascript.diff}
                 changeSummary={(() => {
-                  const summary = calculateDiffSummary(message.changes.javascript!.diff);
+                  const summary = calculateDiffSummary(effectiveChanges.javascript!.diff);
                   return `+${summary.added} −${summary.removed}`;
                 })()}
                 isSuccessful={isMessageApplied() && isChangeSuccessful()}
+                fileId={effectiveChanges.javascript.file_id}
               />
             )}
 
-            {message.changes.css && (
+            {effectiveChanges.css && (
               <CodeChangeBlock
                 language="CSS"
-                code={message.changes.css.diff}
+                code={effectiveChanges.css.diff}
                 changeSummary={(() => {
-                  const summary = calculateDiffSummary(message.changes.css!.diff);
+                  const summary = calculateDiffSummary(effectiveChanges.css!.diff);
                   return `+${summary.added} −${summary.removed}`;
                 })()}
                 isSuccessful={isMessageApplied() && isChangeSuccessful()}
+                fileId={effectiveChanges.css.file_id}
               />
             )}
           </div>
