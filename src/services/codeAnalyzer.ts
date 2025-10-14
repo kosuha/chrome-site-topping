@@ -309,6 +309,13 @@ class CodeAnalyzer {
   }
 
   /**
+   * 외부에서 단일 코드 문자열에 diff/코드 페이로드를 적용하기 위한 헬퍼
+   */
+  applyDiffToCode(currentCode: string, diffString: string): string {
+    return this.applyChangePayload(currentCode ?? '', diffString);
+  }
+
+  /**
    * 지능형 코드 병합 (Cursor AI 스타일 changes 형식)
    */
   intelligentMerge(

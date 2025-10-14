@@ -4,12 +4,14 @@ import aiService from '../services/aiService';
 import codeAnalyzer from '../services/codeAnalyzer';
 import { calculateChangeSummary } from '../utils/changeSummary';
 import { ChatMessage, useAppContext } from '../contexts/AppContext';
-import { applyLanguageStringToFiles, normaliseOrder, cloneFiles } from '../utils/codeFiles';
+import { applyLanguageStringToFiles, normaliseOrder, cloneFiles, filesToLanguageString } from '../utils/codeFiles';
+import { SiteIntegrationService } from '../services/siteIntegration';
 
 export default function useThreadSSE() {
   const { state, actions } = useAppContext();
   const eventSourceRef = useRef<EventSource | null>(null);
   const stateRef = useRef(state);
+  const siteService = SiteIntegrationService.getInstance();
 
   useEffect(() => {
     stateRef.current = state;
@@ -25,6 +27,127 @@ export default function useThreadSSE() {
     }
 
     const setupSSEConnection = async () => {
+      const applyAssistantChanges = async (changes: any, messageId: string) => {
+        if (!changes) return;
+
+        const currentEditor = stateRef.current.editorCode;
+        let nextEditor = {
+          javascript: currentEditor.javascript,
+          css: currentEditor.css,
+        };
+
+        let updatedFiles = cloneFiles(stateRef.current.codeFiles);
+        const changeSummary: Record<string, { added: number; removed: number }> = {};
+
+        const applyLanguageChange = (language: 'javascript' | 'css') => {
+          const change = changes?.[language];
+          if (!change?.diff) return;
+
+          const fileId = typeof change.file_id === 'string' && change.file_id.trim() ? change.file_id.trim() : undefined;
+
+          if (fileId) {
+            const targetIndex = updatedFiles.findIndex(file => file.id === fileId);
+            if (targetIndex === -1) {
+              console.warn(`[AI Merge] 대상 파일(${fileId})을 찾을 수 없습니다.`);
+              return;
+            }
+
+            const targetFile = updatedFiles[targetIndex];
+            const currentCode = (language === 'javascript' ? targetFile.draftJavascript : targetFile.draftCss) || '';
+            const patched = codeAnalyzer.applyDiffToCode(currentCode, change.diff);
+
+            const nextFile = {
+              ...targetFile,
+              draftJavascript: language === 'javascript' ? patched : targetFile.draftJavascript,
+              savedJavascript: language === 'javascript' ? patched : targetFile.savedJavascript,
+              draftCss: language === 'css' ? patched : targetFile.draftCss,
+              savedCss: language === 'css' ? patched : targetFile.savedCss,
+              hasUnsavedChanges: false,
+            };
+
+            updatedFiles[targetIndex] = nextFile;
+
+            const aggregated = filesToLanguageString(updatedFiles, language, true, true);
+            changeSummary[language] = calculateChangeSummary(nextEditor[language], aggregated);
+            nextEditor[language] = aggregated;
+            updatedFiles = applyLanguageStringToFiles(updatedFiles, aggregated, language);
+          } else {
+            const merged = codeAnalyzer.intelligentMerge(
+              {
+                javascript: nextEditor.javascript,
+                css: nextEditor.css,
+              },
+              { changes: { [language]: { diff: change.diff } } }
+            );
+
+            const mergedCode = merged[language];
+            if (mergedCode !== undefined) {
+              const newCode = mergedCode || '';
+              changeSummary[language] = calculateChangeSummary(nextEditor[language], newCode);
+              nextEditor[language] = newCode;
+              updatedFiles = applyLanguageStringToFiles(updatedFiles, newCode, language);
+            }
+          }
+        };
+
+        applyLanguageChange('javascript');
+        applyLanguageChange('css');
+
+        const normalisedFiles = normaliseOrder(updatedFiles);
+
+        const summaryPayload: any = {};
+        if (changeSummary.javascript) summaryPayload.javascript = changeSummary.javascript;
+        if (changeSummary.css) summaryPayload.css = changeSummary.css;
+
+        if (Object.keys(summaryPayload).length === 0) {
+          // 변경 사항이 감지되지 않은 경우에도 에디터 코드는 최신 상태로 유지
+          if (nextEditor.javascript !== currentEditor.javascript) {
+            actions.setEditorCode('javascript', nextEditor.javascript);
+          }
+          if (nextEditor.css !== currentEditor.css) {
+            actions.setEditorCode('css', nextEditor.css);
+          }
+          actions.setLastAppliedChange(messageId, new Date());
+          return;
+        }
+
+        actions.pushCodeHistory({
+          files: cloneFiles(normalisedFiles),
+          messageId,
+          description: 'AI 자동 적용 완료 (SSE)',
+          changeSummary: summaryPayload,
+          isSuccessful: true,
+        });
+
+        if (nextEditor.javascript !== currentEditor.javascript) {
+          actions.setEditorCode('javascript', nextEditor.javascript);
+        }
+        if (nextEditor.css !== currentEditor.css) {
+          actions.setEditorCode('css', nextEditor.css);
+        }
+
+        actions.setLastAppliedChange(messageId, new Date());
+
+        const siteCode = stateRef.current.selectedSiteCode;
+        if (siteCode) {
+          const serverSnapshot = stateRef.current.serverCode;
+          try {
+            const response = await siteService.saveDraftScript(siteCode, {
+              draftScriptContent: nextEditor.javascript,
+              draftCssContent: nextEditor.css,
+            });
+            actions.setServerCode(
+              response.draft_script_content ?? nextEditor.javascript,
+              response.draft_css_content ?? nextEditor.css,
+              response.script_content ?? serverSnapshot.deployedScript ?? null,
+              response.css_content ?? serverSnapshot.deployedCss ?? null,
+            );
+          } catch (error) {
+            console.error('[SSE] AI 자동 저장 실패:', error);
+          }
+        }
+      };
+
       try {
         if (eventSourceRef.current) {
           eventSourceRef.current.close();
@@ -87,45 +210,10 @@ export default function useThreadSSE() {
                 }
 
                 if (status === 'completed' && extractedChanges) {
-                  const currentCodeObj = {
-                    javascript: stateRef.current.editorCode.javascript,
-                    css: stateRef.current.editorCode.css
-                  };
                   setTimeout(() => {
-                    try {
-                      const mergedCode = codeAnalyzer.intelligentMerge(currentCodeObj, { changes: extractedChanges });
-                      let changeSummary: any = {};
-                      if (extractedChanges?.javascript) {
-                        changeSummary.javascript = calculateChangeSummary(currentCodeObj.javascript, mergedCode.javascript || '');
-                      }
-                      if (extractedChanges?.css) {
-                        changeSummary.css = calculateChangeSummary(currentCodeObj.css, mergedCode.css || '');
-                      }
-                      let updatedFiles = stateRef.current.codeFiles;
-                      if (mergedCode.javascript) {
-                        updatedFiles = applyLanguageStringToFiles(updatedFiles, mergedCode.javascript, 'javascript');
-                      }
-                      if (mergedCode.css) {
-                        updatedFiles = applyLanguageStringToFiles(updatedFiles, mergedCode.css, 'css');
-                      }
-                      const normalisedFiles = normaliseOrder(updatedFiles);
-                      actions.pushCodeHistory({
-                        files: cloneFiles(normalisedFiles),
-                        messageId: message_id,
-                        description: 'AI 자동 적용 완료 (SSE)',
-                        changeSummary,
-                        isSuccessful: true
-                      });
-                      if (mergedCode.javascript !== undefined) {
-                        actions.setEditorCode('javascript', mergedCode.javascript);
-                      }
-                      if (mergedCode.css !== undefined) {
-                        actions.setEditorCode('css', mergedCode.css);
-                      }
-                      actions.setLastAppliedChange(message_id, new Date());
-                    } catch (e) {
+                    applyAssistantChanges(extractedChanges, message_id).catch((e) => {
                       console.error('❌ SSE 자동 적용 실패:', e);
-                    }
+                    });
                   }, 100);
                 }
               } else {
@@ -148,45 +236,10 @@ export default function useThreadSSE() {
                   }
 
                   if (extractedChanges) {
-                    const currentCodeObj = {
-                      javascript: stateRef.current.editorCode.javascript,
-                      css: stateRef.current.editorCode.css
-                    };
                     setTimeout(() => {
-                      try {
-                        const mergedCode = codeAnalyzer.intelligentMerge(currentCodeObj, { changes: extractedChanges });
-                        let changeSummary: any = {};
-                        if (extractedChanges?.javascript) {
-                          changeSummary.javascript = calculateChangeSummary(currentCodeObj.javascript, mergedCode.javascript || '');
-                        }
-                        if (extractedChanges?.css) {
-                          changeSummary.css = calculateChangeSummary(currentCodeObj.css, mergedCode.css || '');
-                        }
-                        let updatedFiles = stateRef.current.codeFiles;
-                        if (mergedCode.javascript) {
-                          updatedFiles = applyLanguageStringToFiles(updatedFiles, mergedCode.javascript, 'javascript');
-                        }
-                        if (mergedCode.css) {
-                          updatedFiles = applyLanguageStringToFiles(updatedFiles, mergedCode.css, 'css');
-                        }
-                        const normalisedFiles = normaliseOrder(updatedFiles);
-                        actions.pushCodeHistory({
-                          files: cloneFiles(normalisedFiles),
-                          messageId: message_id,
-                          description: 'AI 자동 적용 완료 (SSE 신규)',
-                          changeSummary,
-                          isSuccessful: true
-                        });
-                        if (mergedCode.javascript !== undefined) {
-                          actions.setEditorCode('javascript', mergedCode.javascript);
-                        }
-                        if (mergedCode.css !== undefined) {
-                          actions.setEditorCode('css', mergedCode.css);
-                        }
-                        actions.setLastAppliedChange(message_id, new Date());
-                      } catch (e) {
+                      applyAssistantChanges(extractedChanges, message_id).catch((e) => {
                         console.error('❌ SSE 신규 메시지 적용 실패:', e);
-                      }
+                      });
                     }, 100);
                   }
                 }

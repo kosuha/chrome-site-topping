@@ -30,6 +30,12 @@ export default function MessageComponent({ message }: { message: ChatMessage }) 
 
   const effectiveChanges = message.changes ?? (parsedJson?.changes ?? undefined);
 
+  const resolveFileName = (fileId?: string) => {
+    if (!fileId) return undefined;
+    const file = state.codeFiles.find(f => f.id === fileId);
+    return file ? file.name : fileId;
+  };
+
   const isMessageApplied = () => {
     if (!message.id) return false;
     const messageHistoryIndex = state.codeHistoryStack.findIndex((item) => item.messageId === message.id);
@@ -115,7 +121,7 @@ export default function MessageComponent({ message }: { message: ChatMessage }) 
                   return `+${summary.added} −${summary.removed}`;
                 })()}
                 isSuccessful={isMessageApplied() && isChangeSuccessful()}
-                fileId={effectiveChanges.javascript.file_id}
+                fileId={resolveFileName(effectiveChanges.javascript.file_id)}
               />
             )}
 
@@ -128,7 +134,7 @@ export default function MessageComponent({ message }: { message: ChatMessage }) 
                   return `+${summary.added} −${summary.removed}`;
                 })()}
                 isSuccessful={isMessageApplied() && isChangeSuccessful()}
-                fileId={effectiveChanges.css.file_id}
+                fileId={resolveFileName(effectiveChanges.css.file_id)}
               />
             )}
           </div>
