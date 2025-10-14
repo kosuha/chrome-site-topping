@@ -372,29 +372,68 @@ async function handleUpdatePreviewCodeMainBranch(message: any, sender: chrome.ru
             targetTabId = activeTab.id;
         }
         
-        
-        // 적용된 코드 추적 업데이트
-        appliedPreviews.set(targetTabId, {
-            tabId: targetTabId,
-            cssCode: css || '',
-            jsCode: js || ''
-        });
-        
-        // 메인 브랜치 방식의 실시간 업데이트
-        const [result] = await chrome.scripting.executeScript({
-            target: { tabId: targetTabId },
-            world: 'MAIN',
-            func: async (cssCode: string, jsCode: string) => {
-                return await (window as any).__siteTopping_applyCodeMainBranch(cssCode, jsCode);
-            },
-            args: [css || '', js || '']
-        });
-        
-        if (!result?.result?.success) {
-            throw new Error(result?.result?.error || '메인 브랜치 방식 실시간 업데이트 실패');
+        const prev = appliedPreviews.get(targetTabId);
+        const hasCssValue = typeof css === 'string';
+        const hasJsValue = typeof js === 'string';
+
+        const nextCss = hasCssValue ? css as string : (prev?.cssCode ?? '');
+        const nextJs = hasJsValue ? js as string : (prev?.jsCode ?? '');
+
+        const cssChanged = hasCssValue ? nextCss !== (prev?.cssCode ?? '') : false;
+        const jsChanged = hasJsValue ? nextJs !== (prev?.jsCode ?? '') : false;
+
+        if (!cssChanged && !jsChanged) {
+            sendResponse({ success: true, skipped: true });
+            return;
         }
-        
-        sendResponse({ success: true });
+
+        if (jsChanged) {
+            const [result] = await chrome.scripting.executeScript({
+                target: { tabId: targetTabId },
+                world: 'MAIN',
+                func: async (cssCode: string, jsCode: string) => {
+                    return await (window as any).__siteTopping_applyCodeMainBranch(cssCode, jsCode);
+                },
+                args: [nextCss || '', nextJs || '']
+            });
+
+            if (!result?.result?.success) {
+                throw new Error(result?.result?.error || '메인 브랜치 방식 실시간 업데이트 실패');
+            }
+
+            appliedPreviews.set(targetTabId, {
+                tabId: targetTabId,
+                cssCode: nextCss || '',
+                jsCode: nextJs || ''
+            });
+
+            sendResponse({ success: true, jsUpdated: true });
+            return;
+        }
+
+        if (cssChanged) {
+            const [result] = await chrome.scripting.executeScript({
+                target: { tabId: targetTabId },
+                world: 'MAIN',
+                func: async (cssCode: string) => {
+                    return await (window as any).__siteTopping_updateCssMainBranch(cssCode);
+                },
+                args: [nextCss || '']
+            });
+
+            if (!result?.result?.success) {
+                throw new Error(result?.result?.error || 'CSS 업데이트 실패');
+            }
+
+            appliedPreviews.set(targetTabId, {
+                tabId: targetTabId,
+                cssCode: nextCss || '',
+                jsCode: prev?.jsCode ?? ''
+            });
+
+            sendResponse({ success: true, cssUpdated: true });
+            return;
+        }
         
     } catch (error) {
         console.error('[Background] 메인 브랜치 방식 실시간 업데이트 실패:', error);
@@ -1026,6 +1065,52 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                     try { document.documentElement.offsetHeight; window.dispatchEvent(new Event('resize')); } catch {}
                   }
                   
+                  (window as any).__siteTopping_updateCssMainBranch = async function(cssCode: string) {
+                    if (isApplyingCode || isRestoringBaseline) {
+                      console.warn('[Site Topping] CSS 업데이트 차단 - 다른 작업 진행 중');
+                      return { success: false, error: '다른 작업 진행 중' };
+                    }
+                    isApplyingCode = true;
+                    try {
+                      patchIfNeeded();
+                      try { window.postMessage({ type: 'SITE_TOPPING_PREVIEW_START' }, '*'); } catch {}
+                      (window as any).__siteTopping_previewActive = true;
+                      clearCss();
+                      if (cssCode && cssCode.trim()) {
+                        let scoped = applyCSSScoping(cssCode);
+                        scoped = preserveCSSVariables(scoped);
+                        try {
+                          if ('adoptedStyleSheets' in document && typeof (window as any).CSSStyleSheet !== 'undefined') {
+                            const sheet = new (window as any).CSSStyleSheet();
+                            await (sheet as any).replace(scoped);
+                            const sheets = (document as any).adoptedStyleSheets || [];
+                            (document as any).adoptedStyleSheets = [...sheets, sheet];
+                            state.css.sheet = sheet;
+                          } else {
+                            const styleEl = document.createElement('style');
+                            styleEl.id = `${EXTENSION_PREFIX}injected-css`;
+                            styleEl.textContent = scoped;
+                            document.head.appendChild(styleEl);
+                            state.css.styleEl = styleEl;
+                          }
+                        } catch {
+                          const styleEl = document.createElement('style');
+                          styleEl.id = `${EXTENSION_PREFIX}injected-css`;
+                          styleEl.textContent = scoped;
+                          document.head.appendChild(styleEl);
+                          state.css.styleEl = styleEl;
+                        }
+                      }
+                      try { document.documentElement.offsetHeight; window.dispatchEvent(new Event('resize')); } catch {}
+                      return { success: true };
+                    } catch (error) {
+                      console.error('[Site Topping] CSS 업데이트 실패:', error);
+                      return { success: false, error: error instanceof Error ? error.message : String(error) };
+                    } finally {
+                      isApplyingCode = false;
+                    }
+                  };
+                  
                   async function update(cssCode: string, jsCode: string){
                     runRegisteredCleanups();
                     clearCss();
@@ -1186,6 +1271,7 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                         isApplyingCode = false;
                     }
                 };
+                
                 
                 // 메인 함수: 프리뷰 비활성화
                 (window as any).__siteTopping_disablePreviewMainBranch = async function() {
