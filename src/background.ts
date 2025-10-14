@@ -495,6 +495,7 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                     patched: false,
                     // Enhanced baseline snapshot
                     baselineSnapshot: null as any,
+                    cleanups: [] as Function[],
                     logs: {
                       addedNodes: new Set<Element>(),
                       attrChanges: [] as any[],
@@ -515,6 +516,54 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                     const root = getExtensionRoot();
                     if (root && (el === root || root.contains(el))) return true;
                     return false;
+                  }
+
+                  function runRegisteredCleanups() {
+                    const globalObj = window as any;
+                    const registered = Array.isArray(state.cleanups) ? [...state.cleanups] : [];
+                    state.cleanups = [];
+
+                    if (!registered.length &&
+                        !Array.isArray(globalObj.__siteToppingCleanups) &&
+                        typeof globalObj.__siteTopping_cleanup !== 'function') {
+                      return;
+                    }
+
+                    const prevGuard = state.guard;
+                    state.guard = false;
+                    try {
+                      registered.forEach((fn) => {
+                        try {
+                          if (typeof fn === 'function') {
+                            fn();
+                          }
+                        } catch (e) {
+                          console.warn('[Site Topping] 등록된 클린업 실행 실패:', e);
+                        }
+                      });
+
+                      if (Array.isArray(globalObj.__siteToppingCleanups)) {
+                        globalObj.__siteToppingCleanups.forEach((fn: any) => {
+                          try {
+                            if (typeof fn === 'function') fn();
+                          } catch (e) {
+                            console.warn('[Site Topping] 레거시 클린업 실행 실패:', e);
+                          }
+                        });
+                        globalObj.__siteToppingCleanups = [];
+                      }
+
+                      if (typeof globalObj.__siteTopping_cleanup === 'function') {
+                        try {
+                          globalObj.__siteTopping_cleanup();
+                        } catch (e) {
+                          console.warn('[Site Topping] 레거시 전역 클린업 실패:', e);
+                        }
+                        delete globalObj.__siteTopping_cleanup;
+                      }
+                    } finally {
+                      state.guard = prevGuard;
+                    }
                   }
                   
                   // Enhanced baseline snapshot capture
@@ -978,6 +1027,7 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                   }
                   
                   async function update(cssCode: string, jsCode: string){
+                    runRegisteredCleanups();
                     clearCss();
                     clearJs();
                     rollback();
@@ -988,6 +1038,8 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                   async function disable(){
                     // Clear preview active flag
                     (window as any).__siteTopping_previewActive = false;
+
+                    runRegisteredCleanups();
                     
                     // Clean up enhanced event listeners
                     cleanupEnhancedEventListeners();
@@ -1104,6 +1156,11 @@ async function initializeMainBranchSystem(tabId: number): Promise<void> {
                         try { return fn.apply(this, args); } finally { state.guard = prev; }
                       }
                     }
+                  };
+
+                  (window as any).__siteTopping_registerCleanup = function(fn: Function){
+                    if (typeof fn !== 'function') return;
+                    (window as any).__SiteToppingAPI.registerCleanup(fn);
                   };
                   
                   return { apply, update, disable };
