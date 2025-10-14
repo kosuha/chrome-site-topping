@@ -147,33 +147,201 @@ class CodeAnalyzer {
   }
 
   /**
+   * 문자열 응답에서 JSON 오브젝트를 추출
+   */
+  private parseJsonFromString(raw: string): any | null {
+    const tryParse = (input: string) => {
+      try {
+        return JSON.parse(input);
+      } catch {
+        return null;
+      }
+    };
+
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+
+    let parsed = tryParse(trimmed);
+    if (parsed) return parsed;
+
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenced) {
+      parsed = tryParse(fenced[1].trim());
+      if (parsed) return parsed;
+    }
+
+    const firstBrace = trimmed.indexOf('{');
+    const lastBrace = trimmed.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      parsed = tryParse(trimmed.slice(firstBrace, lastBrace + 1));
+      if (parsed) return parsed;
+    }
+
+    return null;
+  }
+
+  /**
+   * 다양한 응답 포맷에서 changes 객체를 추출
+   */
+  private extractChanges(response: any): any | null {
+    if (!response || typeof response !== 'object') return null;
+
+    if (response.changes && typeof response.changes === 'object') {
+      return response.changes;
+    }
+
+    if (response.metadata?.changes && typeof response.metadata.changes === 'object') {
+      return response.metadata.changes;
+    }
+
+    if (response.data?.ai_message?.changes && typeof response.data.ai_message.changes === 'object') {
+      return response.data.ai_message.changes;
+    }
+
+    if (response.ai_message?.changes && typeof response.ai_message.changes === 'object') {
+      return response.ai_message.changes;
+    }
+
+    return null;
+  }
+
+  /**
+   * changes payload 형식 여부 확인
+   */
+  private isChangesPayload(value: any): boolean {
+    if (!value || typeof value !== 'object') return false;
+    if (value.javascript?.diff || value.css?.diff) return true;
+    const keys = Object.keys(value);
+    return keys.length > 0 && keys.every((key) => ['javascript', 'css'].includes(key));
+  }
+
+  /**
+   * unified diff 여부 확인
+   */
+  private looksLikeUnifiedDiff(diffString: string): boolean {
+    try {
+      const normalized = this.normalizeUnifiedDiff(diffString);
+      return this.hasHunk(normalized);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * 코드펜스를 제거한 문자열 반환
+   */
+  private stripCodeFence(text: string): string {
+    return text.replace(/^```[a-zA-Z]*\s*\n?/, '').replace(/\n?```$/, '');
+  }
+
+  /**
+   * 코드로 보이는지 휴리스틱 검사
+   */
+  private isLikelyCodePayload(payload: string): boolean {
+    const trimmed = this.stripCodeFence(payload).trim();
+    if (!trimmed) return false;
+    if (/^(@@|diff\s|index\s|---\s|\+\+\+\s|\+|-)/.test(trimmed)) return false;
+
+    const indicators = [
+      /\bfunction\b/,
+      /\bconst\b/,
+      /\blet\b/,
+      /\bvar\b/,
+      /\bclass\b/,
+      /\breturn\b/,
+      /=>/,
+      /\bdocument\b/,
+      /\bwindow\b/,
+      /\bif\s*\(/,
+      /\bfor\s*\(/,
+      /\bwhile\s*\(/,
+      /console\./,
+      /\bimport\s+/,
+      /\bexport\s+/,
+      /\$\s*\(/,
+    ];
+
+    const cssIndicators = [
+      /\.[A-Za-z0-9_-]+\s*\{/,
+      /#[A-Za-z0-9_-]+\s*\{/,
+      /\bcolor\s*:/,
+      /\bdisplay\s*:/,
+      /\bposition\s*:/,
+      /\bflex\s*:/,
+      /\bmargin\s*:/,
+      /\bpadding\s*:/,
+      /\bfont(?:-family|-size)?\s*:/,
+    ];
+
+    for (const pattern of [...indicators, ...cssIndicators]) {
+      if (pattern.test(trimmed)) {
+        return true;
+      }
+    }
+
+    return trimmed.includes('\n');
+  }
+
+  /**
+   * 코드 페이로드를 현재 코드의 EOL에 맞게 정규화
+   */
+  private normalizePlainCodePayload(payload: string, reference: string): string {
+    const eol = reference.includes('\r\n') ? '\r\n' : '\n';
+    const stripped = this.stripCodeFence(payload);
+    const normalisedLf = stripped.replace(/\r\n/g, '\n');
+    return normalisedLf.split('\n').join(eol);
+  }
+
+  /**
+   * diff/코드 페이로드 적용
+   */
+  private applyChangePayload(currentCode: string, diffString: string): string {
+    if (this.looksLikeUnifiedDiff(diffString)) {
+      return this.applyDiffDirectly(currentCode, diffString);
+    }
+
+    if (!this.isLikelyCodePayload(diffString)) {
+      console.warn('변경 페이로드가 diff도 코드도 아닌 것으로 판단되어 적용하지 않습니다.');
+      return currentCode;
+    }
+
+    return this.normalizePlainCodePayload(diffString, currentCode);
+  }
+
+  /**
    * 지능형 코드 병합 (Cursor AI 스타일 changes 형식)
    */
   intelligentMerge(
     currentCode: { javascript?: string; css?: string },
     aiResponse: string | object
   ): { javascript?: string; css?: string } {
-    
-    // changes 객체 직접 전달 처리
-    if (typeof aiResponse === 'object' && 'changes' in aiResponse) {
-      const changes = (aiResponse as any).changes;
-      const result: { javascript?: string; css?: string } = {};
-      
-      if (changes.javascript?.diff && currentCode.javascript !== undefined) {
-        result.javascript = this.applyDiffDirectly(currentCode.javascript, changes.javascript.diff);
-      } else {
-        result.javascript = currentCode.javascript;
-      }
-      
-      if (changes.css?.diff && currentCode.css !== undefined) {
-        result.css = this.applyDiffDirectly(currentCode.css, changes.css.diff);
-      } else {
-        result.css = currentCode.css;
-      }
-      return result;
+    const responseObject =
+      typeof aiResponse === 'string' ? this.parseJsonFromString(aiResponse) :
+      (typeof aiResponse === 'object' && aiResponse !== null ? aiResponse : null);
+
+    let changes = this.extractChanges(responseObject);
+    if (!changes && this.isChangesPayload(responseObject)) {
+      changes = responseObject;
     }
-    
-    return currentCode;
+    if (!changes) {
+      return currentCode;
+    }
+
+    const result: { javascript?: string; css?: string } = {};
+
+    if (changes.javascript?.diff && currentCode.javascript !== undefined) {
+      result.javascript = this.applyChangePayload(currentCode.javascript, changes.javascript.diff);
+    } else {
+      result.javascript = currentCode.javascript;
+    }
+
+    if (changes.css?.diff && currentCode.css !== undefined) {
+      result.css = this.applyChangePayload(currentCode.css, changes.css.diff);
+    } else {
+      result.css = currentCode.css;
+    }
+
+    return result;
   }
 }
 

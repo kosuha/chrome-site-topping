@@ -13,15 +13,26 @@ import { useWalletBalance } from '../hooks/useWalletBalance';
 import useMembership from '../hooks/useMembership';
 import { supabase } from '../services/supabase';
 import { useTranslations } from '../hooks/useTranslations';
+import { filesToLanguageString } from '../utils/codeFiles';
 
 export default function ChatTab() {
   const { state, actions, computed } = useAppContext();
   const [showThreads, setShowThreads] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [fileSearch, setFileSearch] = useState('');
-  const [selectedFileIds, setSelectedFileIds] = useState<string[]>(() =>
-    state.codeFiles.filter((file) => file.isActive).map((file) => file.id)
-  );
+  const [selectedFileIds, setSelectedFileIds] = useState<string[]>(() => {
+    if (state.selectedFileId) {
+      return [state.selectedFileId];
+    }
+    const active = state.codeFiles.filter((file) => file.isActive).map((file) => file.id);
+    if (active.length > 0) {
+      return active;
+    }
+    if (state.codeFiles.length > 0) {
+      return [state.codeFiles[0].id];
+    }
+    return [];
+  });
   const [showFilePicker, setShowFilePicker] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
   // AI 모델 목록(서버 동적)과 선택 상태 - 서버 응답 전에는 비워둔다
@@ -39,6 +50,7 @@ export default function ChatTab() {
 
   useEffect(() => {
     const availableIds = new Set(state.codeFiles.map((file) => file.id));
+    const preferredId = state.selectedFileId;
     setSelectedFileIds((prev) => {
       const filtered = prev.filter((id) => availableIds.has(id));
       if (filtered.length > 0) {
@@ -53,13 +65,31 @@ export default function ChatTab() {
         return activeFallback;
       }
 
+      if (preferredId && availableIds.has(preferredId)) {
+        return [preferredId];
+      }
+
       if (state.codeFiles.length > 0) {
         return [state.codeFiles[0].id];
       }
 
       return filtered;
     });
-  }, [state.codeFiles]);
+  }, [state.codeFiles, state.selectedFileId]);
+
+  useEffect(() => {
+    const selectedFileId = state.selectedFileId;
+    if (!selectedFileId) return;
+    setSelectedFileIds((prev) => {
+      if (prev.length === 1 && prev[0] === selectedFileId) {
+        return prev;
+      }
+      if (!prev.includes(selectedFileId)) {
+        return [selectedFileId];
+      }
+      return prev;
+    });
+  }, [state.selectedFileId]);
 
   const orderedCodeFiles = useMemo(
     () => [...state.codeFiles].sort((a, b) => a.order - b.order),
@@ -105,25 +135,10 @@ export default function ChatTab() {
       return { javascript: '', css: '' };
     }
 
-    const javascript = selectedFiles
-      .map((file) => {
-        const header = `// File: ${file.name}`;
-        const body = file.draftJavascript.trim();
-        return body ? `${header}\n${body}` : header;
-      })
-      .join('\n\n')
-      .trim();
-
-    const css = selectedFiles
-      .map((file) => {
-        const header = `/* File: ${file.name} */`;
-        const body = file.draftCss.trim();
-        return body ? `${header}\n${body}` : header;
-      })
-      .join('\n\n')
-      .trim();
-
-    return { javascript, css };
+    return {
+      javascript: filesToLanguageString(selectedFiles, 'javascript', true, true),
+      css: filesToLanguageString(selectedFiles, 'css', true, true),
+    };
   }, [selectedFiles]);
 
   const handleToggleFile = (fileId: string) => {
@@ -447,6 +462,11 @@ export default function ChatTab() {
           // 사용자가 선택한 AI 모델을 서버로 전달
           ai_model_preferred: aiModel || undefined,
           selectedFileIds,
+          primarySelectedFileId: state.selectedFileId || null,
+          selectedFiles: selectedFiles.map((file) => ({
+            id: file.id,
+            name: file.name,
+          })),
         },
         siteCode || undefined,
         false,
