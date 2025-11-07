@@ -968,7 +968,7 @@ export function AppProvider({ children }: AppProviderProps) {
     loadSiteHistory: async (siteCode: string) => {
       dispatch({ type: 'SET_SELECTED_SITE_CODE', payload: siteCode });
     },
-  }), [dispatch, state]);
+  }), [dispatch]);
   const computed = useMemo(() => {
     const currentThread = state.currentThreadId
       ? state.chatThreads.find(thread => thread.id === state.currentThreadId) || null
